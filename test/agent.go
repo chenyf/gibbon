@@ -5,13 +5,13 @@ import (
 	"log"
 	"io"
 	"os"
-	//"fmt"
+	"fmt"
+	"time"
 	//"strings"
 	"github.com/chenyf/gibbon/comet"
 )
 
 func main() {
-
 	if len(os.Args) <= 2 {
 		log.Printf("Usage: server_addr devid")
 		return
@@ -40,6 +40,30 @@ func main() {
 	n2, _ := conn.Write([]byte(devid))
 	log.Printf("write out %d, %d", n1, n2)
 
+	outMsg := make(chan *comet.Message, 10)
+	go func(out chan *comet.Message) {
+		timer := time.NewTicker(60*time.Second)
+		hb := comet.Header{
+			Type: comet.MSG_HEARTBEAT,
+			Ver: 0,
+			Seq: 0,
+			Len: 0,
+		}
+		heartbeat, _ := hb.Serialize()
+		for {
+			select {
+			//case <- done:
+			//	break
+			case msg := <-out:
+				b, _ := msg.Header.Serialize()
+				conn.Write(b)
+				conn.Write(msg.Data)
+			case <- timer.C:
+				conn.Write(heartbeat)
+			}
+		}
+	}(outMsg)
+
 	for {
 		headSize := 10
 		buf := make([]byte, headSize)
@@ -61,18 +85,19 @@ func main() {
 
 		log.Printf("recv from server (%s)", string(data))
 		if header.Type == comet.MSG_REQUEST {
-			s := "haha"
+			s := fmt.Sprintf("Sir, %s got it!", devid)
 			reply_header := comet.Header{
 				Type: comet.MSG_REQUEST_REPLY,
 				Ver: 0,
 				Seq: header.Seq,
 				Len: uint32(len(s)),
 			}
-			b, _ := reply_header.Serialize()
-			conn.Write(b)
-			conn.Write([]byte(s))
+			reply_msg := &comet.Message{
+				Header: reply_header,
+				Data: []byte(s),
+			}
+			outMsg <- reply_msg
 		}
 	}
 }
-
 

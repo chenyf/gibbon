@@ -14,7 +14,12 @@ import (
 	"github.com/chenyf/gibbon/comet"
 )
 
-func sayHello(w http.ResponseWriter, r *http.Request) {
+func getStatus(w http.ResponseWriter, r *http.Request) {
+	size := comet.DevMap.Size()
+	fmt.Fprintf(w, "total register device: %d\n", size)
+}
+
+func getCommand(w http.ResponseWriter, r *http.Request) {
 
 	r.ParseForm()
 	devid := r.FormValue("devid")
@@ -28,9 +33,10 @@ func sayHello(w http.ResponseWriter, r *http.Request) {
 	}
 	cmd := r.FormValue("cmd")
 	client := comet.DevMap.Get(devid).(*comet.Client)
-	ch, seqid := client.SendMessage(comet.MSG_REQUEST, []byte(cmd), true)
+	reply := make(chan *comet.Message)
+	seqid := client.SendMessage(comet.MSG_REQUEST, []byte(cmd), reply)
 	select {
-	case msg := <-ch:
+	case msg := <-reply:
 		delete(client.MsgFoo,  seqid)
 		fmt.Fprintf(w, "recv reply  (%s)\n", string(msg.Data))
 	case <- time.After(10 * time.Second):
@@ -78,7 +84,8 @@ func main() {
 	}()
 	waitGroup.Add(1)
 	go func() {
-		http.HandleFunc("/", sayHello)
+		http.HandleFunc("/command", getCommand)
+		http.HandleFunc("/status", getStatus)
 		err := http.ListenAndServe("0.0.0.0:9999", nil)
 		if err != nil {
 			log.Fatal("http listen: ", err)
