@@ -3,10 +3,10 @@ package comet
 import (
 	"log"
 	"io"
-	//"bufio"
 	"net"
 	"sync"
 	"time"
+	//"bufio"
 	//"strconv"
 	//"strings"
 	//"github.com/chenyf/gibbon/utils/convert"
@@ -41,6 +41,7 @@ type Client struct {
 	MsgOut	chan Message
 	MsgFoo	map[uint32]chan Message
 	NextSeqId uint32
+	LastAlive	time.Time
 }
 
 func (client *Client)SendMessage(msgType uint8, body []byte, wait bool) (chan Message, uint32) {
@@ -64,7 +65,6 @@ func (client *Client)SendMessage(msgType uint8, body []byte, wait bool) (chan Me
 	client.MsgFoo[seqid] = ch
 	client.MsgOut <- msg
 	return ch, seqid
-
 }
 
 var (
@@ -72,7 +72,7 @@ var (
 	ConnMap *safemap.SafeMap = safemap.NewSafeMap()
 )
 
-func InitClient(conn *net.TCPConn, devid string) {
+func InitClient(conn *net.TCPConn, devid string) (*Client) {
 	ConnMap.Set(conn, devid)
 	client := &Client {
 		devId: devid,
@@ -80,6 +80,7 @@ func InitClient(conn *net.TCPConn, devid string) {
 		MsgOut: make(chan Message, 100),
 		MsgFoo: make(map[uint32]chan Message),
 		NextSeqId: 1,
+		LastAlive: time.Now(),
 	}
 	DevMap.Set(devid, client)
 
@@ -98,11 +99,14 @@ func InitClient(conn *net.TCPConn, devid string) {
 		}
 		log.Printf("leave send routine")
 	}()
+	return client
 }
 
 func CloseClient(conn *net.TCPConn) {
 	conn.Close()
 	devid := ConnMap.Get(conn)
+	client, _ := DevMap.Get(devid).(*Client)
+	client.ctrl <- true
 	DevMap.Delete(devid)
 	ConnMap.Delete(conn)
 }
@@ -117,14 +121,21 @@ func handleReply(conn *net.TCPConn, header Header, body []byte) int {
 	return 0
 }
 
+func handleHeartbeat(conn *net.TCPConn, header Header, body []byte) int {
+	devid := ConnMap.Get(conn)
+	client, _ := DevMap.Get(devid).(*Client)
+	client.LastAlive = time.Now()
+	return 0
+}
+
 // type seq ver len body
 func handleRegister(conn *net.TCPConn, header Header, body []byte) int {
 	devid := string(body)
 	log.Printf("recv register devid (%s)", devid)
-	/*a := strings.Split(body, " ")
-	if len(a) != 4 {
-		return false
-	}*/
+	if DevMap.Check(devid) {
+		log.Printf("device (%s) register already", devid)
+		return -1
+	}
 	InitClient(conn, devid)
 	return 0
 }
@@ -153,7 +164,8 @@ func (this *Server) Init(addr string) (*net.TCPListener, error) {
 		log.Printf("failed to listen, (%v)", err)
 		return nil, err
 	}
-	this.funcMap[MSG_REGISTER] = handleRegister
+	//this.funcMap[MSG_REGISTER] = handleRegister
+	this.funcMap[MSG_HEARTBEAT] = handleHeartbeat
 	this.funcMap[MSG_REQUEST_REPLY] = handleReply
 	return l, nil
 }
@@ -188,7 +200,13 @@ func (this *Server) Run(listener *net.TCPListener) {
 			log.Printf("accept failed: %v\n", err)
 			continue
 		}
-		log.Printf("accept new connection\n")
+		/*
+		// first packet must sent by client in specified seconds
+		if err = conn.SetReadDeadline(time.Now().Add(20)); err != nil {
+			glog.Errorf("conn.SetReadDeadLine() error(%v)", err)
+			conn.Close()
+			continue
+		}*/
 		go this.handleConnection(conn)
 	}
 }
@@ -201,21 +219,55 @@ func (this *Server) Stop() {
 	log.Printf("comet server stopped")
 }
 
-/// this routine used for receive message
+func waitRegister(conn *net.TCPConn) (*Client) {
+	conn.SetReadDeadline(time.Now().Add(10* time.Second))
+	buf := make([]byte, 10)
+	n, err := io.ReadFull(conn, buf)
+	if err != nil {
+		log.Printf("readfull header failed (%v)", err)
+		conn.Close()
+		return nil
+	}
+
+	var header Header
+	if err := header.Deserialize(buf[0:n]); err != nil {
+		log.Printf("parse header (%v)", err)
+		conn.Close()
+		return nil
+	}
+
+	data := make([]byte, header.Len)
+	if _, err := io.ReadFull(conn, data); err != nil {
+		log.Printf("readfull body failed: (%v)", err)
+		conn.Close()
+		return nil
+	}
+
+	if header.Type != MSG_REGISTER {
+		log.Printf("not register message")
+		conn.Close()
+		return nil
+	}
+
+	devid := string(data)
+	log.Printf("recv register devid (%s)", devid)
+	if DevMap.Check(devid) {
+		log.Printf("device (%s) register already", devid)
+		conn.Close()
+		return nil
+	}
+	client := InitClient(conn, devid)
+	return client
+}
+
+// handle a TCP connection
 func (this *Server)handleConnection(conn *net.TCPConn) {
-
-	// recv data
-	/*
-	var (
-		bLen []byte = make([]byte, 4)
-		bType []byte = make([]byte, 4)
-		msgLen uint32
-	)*/
-
-	defer func() {
-		log.Printf("close connection")
-		CloseClient(conn)
-	}()
+	log.Printf("accept connection (%v)", conn)
+	// handle register first
+	client := waitRegister(conn)
+	if client == nil {
+		return
+	}
 
 	for {
 		/*
@@ -227,31 +279,14 @@ func (this *Server)handleConnection(conn *net.TCPConn) {
 		}
 		*/
 
+		now := time.Now()
+		if now.After(client.LastAlive.Add(60*time.Second)) {
+			log.Printf("heartbeat timeout")
+			break
+		}
+
 		//conn.SetReadDeadline(time.Now().Add(this.readTimeout))
-		/*
-		if n, err := io.ReadFull(conn, bLen); err != nil  && n != 4 {
-			log.Printf("read message len failed, (%v)\n", err)
-			return
-		}
-
-		if n, err := io.ReadFull(conn, bType); err != nil && n != 4 {
-			log.Printf("read message type failed\n")
-			return
-		}
-
-		if msgLen = convert.BytesToUint32(bLen); msgLen > this.maxMsgLen {
-			log.Printf("msg too long %d\n", msgLen)
-			return
-		}
-
-		bData := make([]byte, msgLen-8)
-		if n, err := io.ReadFull(conn, bData); err != nil && n != int(msgLen) {
-			return
-		}
-
-		*/
-		//conn.SetReadDeadline(time.Now().Add(this.readTimeout))
-		conn.SetReadDeadline(time.Now().Add(10* time.Second))
+		conn.SetReadDeadline(now.Add(10* time.Second))
 		//headSize := 10
 		buf := make([]byte, 10)
 		n, err := io.ReadFull(conn, buf)
@@ -260,11 +295,13 @@ func (this *Server)handleConnection(conn *net.TCPConn) {
 				//log.Printf("read timeout")
 				continue
 			}
+			log.Printf("readfull failed (%v)", err)
+			break
 		}
 		log.Printf("read %d bytes", n)
 		var header Header
 		if err := header.Deserialize(buf[0:n]); err != nil {
-			return
+			break
 		}
 
 		data := make([]byte, header.Len)
@@ -273,28 +310,18 @@ func (this *Server)handleConnection(conn *net.TCPConn) {
 				continue
 			}
 			log.Printf("read from client failed: (%v)", err)
-			return
+			break
 		}
 
-		if header.Type != MSG_REGISTER {
-			if !ConnMap.Check(conn) {
-				log.Printf("hasn't registered")
-				continue
-			}
-		} else {
-			devid := string(data)
-			if DevMap.Check(devid) {
-				log.Printf("device (%s) register already", devid)
-				return
-			}
-		}
 		handler, ok := this.funcMap[header.Type]; if ok {
-			handler(conn, header, data)
-			//log.Printf("call result %d", ret)
-		} else {
-			log.Printf("unknown message type, %d\n", header.Type)
+			ret := handler(conn, header, data)
+			if ret < 0 {
+				break
+			}
 		}
 	}
+	// don't use defer to improve performance
+	log.Printf("close connection (%v)", conn)
+	CloseClient(conn)
 }
-
 
