@@ -2,16 +2,19 @@ package main
 
 import (
 	"flag"
+	"os"
 	"log"
 	"sync"
+	"strings"
 	"io/ioutil"
-	"os"
 	"os/signal"
 	"syscall"
 	"net/http"
 	"fmt"
 	"time"
 	"encoding/json"
+	"crypto/hmac"
+	"crypto/sha1"
 	"github.com/chenyf/gibbon/comet"
 )
 
@@ -28,6 +31,31 @@ type CommandResponse struct {
 func getStatus(w http.ResponseWriter, r *http.Request) {
 	size := comet.DevMap.Size()
 	fmt.Fprintf(w, "total register device: %d\n", size)
+}
+
+func checkAuthz(uid string, devid string) bool {
+	return false
+}
+
+func sign(path string, query map[string]string) []byte{
+	uid := query["uid"]
+	rid := query["rid"]
+	tid := query["tid"]
+	src := query["src"]
+	tm := query["tm"]
+	pmtt := query["pmtt"]
+
+	raw := []string{path, uid, rid, tid, src, tm, pmtt}
+	args := []string{}
+	x := []int{6, 5, 4, 3, 2, 1, 0}
+	for _, item := range(x) {
+		args = append(args, raw[item])
+	}
+	data := strings.Join(args, "")
+	key := "xnRzFxoCDRVRU2mNQ7AoZ5MCxpAR7ntnmlgRGYav"
+	mac := hmac.New(sha1.New, []byte(key))
+	mac.Write([]byte(data))
+	return mac.Sum(nil)
 }
 
 func postRouterCommand(w http.ResponseWriter, r *http.Request) {
@@ -56,6 +84,13 @@ func postRouterCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !checkAuthz(uid, rid) {
+		response.Error = "authorization failed"
+		b, _ := json.Marshal(response)
+		fmt.Fprintf(w, string(b))
+		return
+	}
+
 	/*
 	uid := r.FormValue("uid")
 	if uid == "" {	fmt.Fprintf(w, "missing 'uid'\n"); return; }
@@ -67,6 +102,22 @@ func postRouterCommand(w http.ResponseWriter, r *http.Request) {
 	if tm == "" {	fmt.Fprintf(w, "missing 'tm'\n"); return; }
 	pmtt := r.FormValue("pmtt")
 	if pmtt == "" {	fmt.Fprintf(w, "missing 'pmtt'\n"); return; }
+	query := map[string]string {
+		"uid" : uid,
+		"rid" : rid,
+		"tid" : tid,
+		"src" : "letv",
+		"tm" :  tm,
+		"pmtt" : pmtt,
+	}
+	path := "/router/command"
+	mysign := sign(path, query)
+	if mysign != sign {
+		response.Error = "sign valication failed"
+		b, _ := json.Marshal(response)
+		fmt.Fprintf(w, string(b))
+		return
+	}
 	*/
 
 	if r.Body == nil {
