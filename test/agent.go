@@ -7,9 +7,21 @@ import (
 	"os"
 	"fmt"
 	"time"
+	"encoding/json"
 	//"strings"
 	"github.com/chenyf/gibbon/comet"
 )
+
+type CommandRequest struct {
+	Uid		string	`json:"uid"`
+	Cmd		string	`json:"cmd"`
+}
+
+type CommandResponse struct {
+	Status		int		`json:"status"`
+	Error		string	`json:"error"`
+	Response	string	`json:"response"`
+}
 
 func main() {
 	if len(os.Args) <= 2 {
@@ -85,16 +97,31 @@ func main() {
 
 		log.Printf("recv from server (%s)", string(data))
 		if header.Type == comet.MSG_REQUEST {
-			s := fmt.Sprintf("Sir, %s got it!", devid)
+
+			var request CommandRequest
+			if err := json.Unmarshal(data, &request); err != nil {
+				log.Printf("invalid request, not JSON\n")
+				return
+			}
+
+			fmt.Printf("UID: (%s)\n", request.Uid)
+
+			response := CommandResponse{
+				Status: 0,
+				Error : "OK",
+				Response : fmt.Sprintf("Sir, %s got it!", devid),
+			}
+
+			b, _ := json.Marshal(response)
 			reply_header := comet.Header{
 				Type: comet.MSG_REQUEST_REPLY,
 				Ver: 0,
 				Seq: header.Seq,
-				Len: uint32(len(s)),
+				Len: uint32(len(b)),
 			}
 			reply_msg := &comet.Message{
 				Header: reply_header,
-				Data: []byte(s),
+				Data: b,
 			}
 			outMsg <- reply_msg
 		}

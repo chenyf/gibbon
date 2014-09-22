@@ -4,19 +4,111 @@ import (
 	"flag"
 	"log"
 	"sync"
+	"io/ioutil"
 	"os"
 	"os/signal"
 	"syscall"
 	"net/http"
 	"fmt"
 	"time"
-	//"github.com/chenyf/echoserver/engine"
+	"encoding/json"
 	"github.com/chenyf/gibbon/comet"
 )
+
+type CommandRequest struct {
+	Uid		string	`json:"uid"`
+	Cmd		string	`json:"cmd"`
+}
+
+type CommandResponse struct {
+	Status	int		`json:"status"`
+	Error	string	`json:"error"`
+}
 
 func getStatus(w http.ResponseWriter, r *http.Request) {
 	size := comet.DevMap.Size()
 	fmt.Fprintf(w, "total register device: %d\n", size)
+}
+
+func postRouterCommand(w http.ResponseWriter, r *http.Request) {
+	var response CommandResponse
+	response.Status = 1
+	if r.Method != "POST" {
+		response.Error = "must using 'POST' method\n"
+		b, _ := json.Marshal(response)
+		fmt.Fprintf(w, string(b))
+		return
+	}
+	r.ParseForm()
+	rid := r.FormValue("rid")
+	if rid == "" {
+		response.Error = "missing 'rid'"
+		b, _ := json.Marshal(response)
+		fmt.Fprintf(w, string(b))
+		return
+	}
+
+	uid := r.FormValue("uid")
+	if uid == "" {
+		response.Error = "missing 'uid'"
+		b, _ := json.Marshal(response)
+		fmt.Fprintf(w, string(b))
+		return
+	}
+
+	/*
+	uid := r.FormValue("uid")
+	if uid == "" {	fmt.Fprintf(w, "missing 'uid'\n"); return; }
+	tid := r.FormValue("tid")
+	if tid == "" {	fmt.Fprintf(w, "missing 'tid'\n"); return; }
+	sign := r.FormValue("sign")
+	if sign == "" {	fmt.Fprintf(w, "missing 'sign'\n"); return; }
+	tm := r.FormValue("tm")
+	if tm == "" {	fmt.Fprintf(w, "missing 'tm'\n"); return; }
+	pmtt := r.FormValue("pmtt")
+	if pmtt == "" {	fmt.Fprintf(w, "missing 'pmtt'\n"); return; }
+	*/
+
+	if r.Body == nil {
+		response.Error = "missing POST data"
+		b, _ := json.Marshal(response)
+		fmt.Fprintf(w, string(b))
+		return
+	}
+
+	if !comet.DevMap.Check(rid) {
+		response.Error = fmt.Sprintf("device (%s) offline", rid)
+		b, _ := json.Marshal(response)
+		fmt.Fprintf(w, string(b))
+		return
+	}
+	client := comet.DevMap.Get(rid).(*comet.Client)
+
+	body, err := ioutil.ReadAll(r.Body)
+	r.Body.Close()
+	if err != nil {
+		response.Error = "invalid POST body"
+		b, _ := json.Marshal(response)
+		fmt.Fprintf(w, string(b))
+		return
+	}
+
+	cmdRequest := CommandRequest{
+		Uid: uid,
+		Cmd: string(body),
+	}
+
+	bCmd, _ := json.Marshal(cmdRequest)
+	reply := make(chan *comet.Message)
+	client.SendMessage(comet.MSG_REQUEST, bCmd, reply)
+	select {
+	case msg := <-reply:
+		fmt.Fprintf(w, string(msg.Data))
+	case <- time.After(10 * time.Second):
+		response.Error = "recv response timeout"
+		b, _ := json.Marshal(response)
+		fmt.Fprintf(w, string(b))
+	}
 }
 
 func getCommand(w http.ResponseWriter, r *http.Request) {
@@ -34,13 +126,11 @@ func getCommand(w http.ResponseWriter, r *http.Request) {
 	cmd := r.FormValue("cmd")
 	client := comet.DevMap.Get(devid).(*comet.Client)
 	reply := make(chan *comet.Message)
-	seqid := client.SendMessage(comet.MSG_REQUEST, []byte(cmd), reply)
+	client.SendMessage(comet.MSG_REQUEST, []byte(cmd), reply)
 	select {
 	case msg := <-reply:
-		delete(client.MsgFoo,  seqid)
 		fmt.Fprintf(w, "recv reply  (%s)\n", string(msg.Data))
 	case <- time.After(10 * time.Second):
-		delete(client.MsgFoo,  seqid)
 		fmt.Fprintf(w, "recv timeout\n")
 	}
 }
@@ -84,6 +174,7 @@ func main() {
 	}()
 	waitGroup.Add(1)
 	go func() {
+		http.HandleFunc("/router/command", postRouterCommand)
 		http.HandleFunc("/command", getCommand)
 		http.HandleFunc("/status", getStatus)
 		err := http.ListenAndServe("0.0.0.0:9999", nil)

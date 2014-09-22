@@ -10,10 +10,12 @@ import (
 	"github.com/chenyf/gibbon/utils/safemap"
 )
 
+type MsgHandler func(*Client, *Header, []byte)(int)
+
 type Server struct {
 	exitCh         chan bool
 	waitGroup      *sync.WaitGroup
-	funcMap        map[uint8]func(*Client, Header, []byte)(int)
+	funcMap        map[uint8]MsgHandler
 	acceptTimeout  time.Duration
 	readTimeout    time.Duration
 	writeTimeout   time.Duration
@@ -24,7 +26,7 @@ func NewServer() *Server {
 	return &Server {
 		exitCh:        make(chan bool),
 		waitGroup:     &sync.WaitGroup{},
-		funcMap:       make(map[uint8]func(*Client, Header, []byte)(int)),
+		funcMap:       make(map[uint8]MsgHandler),
 		acceptTimeout: 60,
 		readTimeout:   60,
 		writeTimeout:  60,
@@ -35,32 +37,36 @@ func NewServer() *Server {
 type Client struct {
 	devId	string
 	ctrl	chan bool
-	MsgOut	chan *Message
-	MsgFoo	map[uint32]chan *Message
+	MsgOut	chan *Pack
+	WaitingChannels	map[uint32]chan *Message
 	NextSeqId uint32
 	LastAlive	time.Time
 }
 
-func (client *Client)SendMessage(msgType uint8, body []byte, reply chan *Message) (uint32) {
-	seqid := client.NextSeqId
+type Pack struct {
+	msg		*Message
+	client	*Client
+	reply	chan *Message
+}
+
+func (client *Client)SendMessage(msgType uint8, body []byte, reply chan *Message) {
 	header := Header{
 		Type:	msgType,
 		Ver:	0,
-		Seq:	seqid,
+		Seq:	0,
 		Len:	uint32(len(body)),
 	}
 	msg := &Message{
 		Header: header,
 		Data:	body,
 	}
-	client.NextSeqId += 1
-	if reply == nil {
-		client.MsgOut <- msg
-		return 0
+
+	pack := &Pack{
+		msg: msg,
+		client: client,
+		reply: reply,
 	}
-	client.MsgFoo[seqid] = reply
-	client.MsgOut <- msg
-	return seqid
+	client.MsgOut <- pack
 }
 
 var (
@@ -71,8 +77,8 @@ func InitClient(conn *net.TCPConn, devid string) (*Client) {
 	client := &Client {
 		devId: devid,
 		ctrl: make(chan bool),
-		MsgOut: make(chan *Message, 100),
-		MsgFoo: make(map[uint32]chan *Message),
+		MsgOut: make(chan *Pack, 100),
+		WaitingChannels: make(map[uint32]chan *Message),
 		NextSeqId: 1,
 		LastAlive: time.Now(),
 	}
@@ -83,16 +89,21 @@ func InitClient(conn *net.TCPConn, devid string) (*Client) {
 		for {
 			log.Printf("run loop")
 			select {
-			case msg := <-client.MsgOut:
-				b, _ := msg.Header.Serialize()
+			case pack := <-client.MsgOut:
+				seqid := pack.client.NextSeqId
+				pack.msg.Header.Seq = seqid
+				b, _ := pack.msg.Header.Serialize()
 				conn.Write(b)
-				conn.Write(msg.Data)
-				log.Printf("send msg ok, (%s)", string(msg.Data))
+				conn.Write(pack.msg.Data)
+				log.Printf("send msg ok, (%s)", string(pack.msg.Data))
+				pack.client.NextSeqId += 1
+				// add reply channel
+				if pack.reply != nil {
+					pack.client.WaitingChannels[seqid] = pack.reply
+				}
 			case <-client.ctrl:
 				log.Printf("leave send routine")
 				return
-			//case <-time.After(1*time.Second)
-			//	continue
 			}
 		}
 	}()
@@ -104,14 +115,16 @@ func CloseClient(client *Client) {
 	DevMap.Delete(client.devId)
 }
 
-func handleReply(client *Client, header Header, body []byte) int {
-	ch, ok := client.MsgFoo[header.Seq]; if ok {
-		ch <- &Message{Header: header, Data: body}
+func handleReply(client *Client, header *Header, body []byte) int {
+	ch, ok := client.WaitingChannels[header.Seq]; if ok {
+		//remove waiting channel from map
+		delete(client.WaitingChannels, header.Seq)
+		ch <- &Message{Header: *header, Data: body}
 	}
 	return 0
 }
 
-func handleHeartbeat(client *Client, header Header, body []byte) int {
+func handleHeartbeat(client *Client, header *Header, body []byte) int {
 	client.LastAlive = time.Now()
 	return 0
 }
@@ -289,7 +302,7 @@ func (this *Server)handleConnection(conn *net.TCPConn) {
 		}
 
 		handler, ok := this.funcMap[header.Type]; if ok {
-			ret := handler(client, header, data)
+			ret := handler(client, &header, data)
 			if ret < 0 {
 				break
 			}
