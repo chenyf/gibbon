@@ -42,7 +42,6 @@ func sign(path string, query map[string]string) []byte {
 func main() {
 
 	var (
-		//flRoot               = flag.String("g", "/tmp/echoserver", "Path to use as the root of the docker runtime")
 		flConfig = flag.String("c", "./etc/conf.json", "Config file")
 	)
 
@@ -87,13 +86,8 @@ func main() {
 		cometServer.Run(listener)
 	}()
 	waitGroup.Add(1)
+
 	go api.StartHttp(conf.Config.Web)
-	/*
-		job = eng.Job("restapi")
-		job.SetenvBool("Logging", true)
-		if err := job.Run(); err != nil {
-			log.Fatal(err)
-		}
-	*/
+
 	waitGroup.Wait()
 }

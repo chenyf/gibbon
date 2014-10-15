@@ -34,7 +34,8 @@ type ResponseRouterList struct {
 }
 
 func checkAuthz(uid string, devid string) bool {
-	return false
+	//TODO
+	return true
 }
 
 func getStatus(w http.ResponseWriter, r *http.Request) {
@@ -43,36 +44,38 @@ func getStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func postRouterCommand(w http.ResponseWriter, r *http.Request) {
-	var response CommandResponse
+	var (
+		uid        string
+		rid        string
+		response   CommandResponse
+		client     *comet.Client
+		body       []byte
+		err        error
+		cmdRequest CommandRequest
+		bCmd       []byte
+		reply      chan *comet.Message
+	)
 	response.Status = 1
 	if r.Method != "POST" {
 		response.Error = "must using 'POST' method\n"
-		b, _ := json.Marshal(response)
-		fmt.Fprintf(w, string(b))
-		return
+		goto resp
 	}
 	r.ParseForm()
-	rid := r.FormValue("rid")
+	rid = r.FormValue("rid")
 	if rid == "" {
 		response.Error = "missing 'rid'"
-		b, _ := json.Marshal(response)
-		fmt.Fprintf(w, string(b))
-		return
+		goto resp
 	}
 
-	uid := r.FormValue("uid")
+	uid = r.FormValue("uid")
 	if uid == "" {
 		response.Error = "missing 'uid'"
-		b, _ := json.Marshal(response)
-		fmt.Fprintf(w, string(b))
-		return
+		goto resp
 	}
 
 	if !checkAuthz(uid, rid) {
 		response.Error = "authorization failed"
-		b, _ := json.Marshal(response)
-		fmt.Fprintf(w, string(b))
-		return
+		goto resp
 	}
 
 	/*
@@ -106,73 +109,74 @@ func postRouterCommand(w http.ResponseWriter, r *http.Request) {
 
 	if r.Body == nil {
 		response.Error = "missing POST data"
-		b, _ := json.Marshal(response)
-		fmt.Fprintf(w, string(b))
-		return
+		goto resp
 	}
 
 	if !comet.DevMap.Check(rid) {
 		response.Error = fmt.Sprintf("device (%s) offline", rid)
-		b, _ := json.Marshal(response)
-		fmt.Fprintf(w, string(b))
-		return
+		goto resp
 	}
-	client := comet.DevMap.Get(rid).(*comet.Client)
+	client = comet.DevMap.Get(rid).(*comet.Client)
 
-	body, err := ioutil.ReadAll(r.Body)
+	body, err = ioutil.ReadAll(r.Body)
 	r.Body.Close()
 	if err != nil {
 		response.Error = "invalid POST body"
-		b, _ := json.Marshal(response)
-		fmt.Fprintf(w, string(b))
-		return
+		goto resp
 	}
 
-	cmdRequest := CommandRequest{
+	cmdRequest = CommandRequest{
 		Uid: uid,
 		Cmd: string(body),
 	}
 
-	bCmd, _ := json.Marshal(cmdRequest)
-	reply := make(chan *comet.Message)
+	bCmd, _ = json.Marshal(cmdRequest)
+	reply = make(chan *comet.Message)
 	client.SendMessage(comet.MSG_REQUEST, bCmd, reply)
 	select {
 	case msg := <-reply:
-		fmt.Fprintf(w, string(msg.Data))
+		w.Write(msg.Data)
 	case <-time.After(10 * time.Second):
 		response.Error = "recv response timeout"
-		b, _ := json.Marshal(response)
-		fmt.Fprintf(w, string(b))
+		goto resp
 	}
+	return
+
+resp:
+	b, _ := json.Marshal(response)
+	log.Debugf("postRouterCommand write: %s", string(b))
+	w.Write(b)
 }
 
 func getRouterList(w http.ResponseWriter, r *http.Request) {
-	var response ResponseRouterList
+	log.Tracef("getRouterList")
+	var (
+		uid      string
+		tid      string
+		response ResponseRouterList
+		router   RouterInfo
+	)
+
 	response.Status = -1
 	if r.Method != "GET" {
 		response.Descr = "must using 'GET' method\n"
-		b, _ := json.Marshal(response)
-		fmt.Fprintf(w, string(b))
-		return
+		goto resp
 	}
 	r.ParseForm()
-	rid := r.FormValue("rid")
-	if rid == "" {
-		response.Descr = "missing 'rid'"
-		b, _ := json.Marshal(response)
-		fmt.Fprintf(w, string(b))
-		return
-	}
 
-	uid := r.FormValue("uid")
+	uid = r.FormValue("uid")
 	if uid == "" {
 		response.Descr = "missing 'uid'"
-		b, _ := json.Marshal(response)
-		fmt.Fprintf(w, string(b))
-		return
+		goto resp
 	}
 
-	router := RouterInfo{
+	tid = r.FormValue("tid")
+	if tid == "" {
+		response.Descr = "missing 'tid'"
+		goto resp
+	}
+
+	router = RouterInfo{
 		Rid:   "c80e774a1e73",
 		Rname: "router1",
 	}
@@ -181,8 +185,10 @@ func getRouterList(w http.ResponseWriter, r *http.Request) {
 	response.Descr = "OK"
 	response.List = append(response.List, router)
 
+resp:
 	b, _ := json.Marshal(response)
-	fmt.Fprintf(w, string(b))
+	log.Debugf("getRoutelist write: %s", string(b))
+	w.Write(b)
 }
 
 func getCommand(w http.ResponseWriter, r *http.Request) {

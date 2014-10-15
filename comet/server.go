@@ -252,6 +252,7 @@ func waitRegister(conn *net.TCPConn) *Client {
 // handle a TCP connection
 func (this *Server) handleConnection(conn *net.TCPConn) {
 	log.Debugf("accept connection (%v)", conn)
+	log.Infof("New conn accepted from %s\n", conn.RemoteAddr().String())
 	// handle register first
 	client := waitRegister(conn)
 	if client == nil {
@@ -311,6 +312,6 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 		}
 	}
 	// don't use defer to improve performance
-	log.Infof("close connection (%v)", conn)
+	log.Infof("close connection %s\n", conn.RemoteAddr().String())
 	CloseClient(client)
 }

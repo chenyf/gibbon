@@ -1,8 +1,9 @@
-all:
+all: gibbon tarball
+
+gibbon:
 	go build
 
-tarball:
-	go build
+tarball: gibbon
 	mkdir -p output
 	rm -rf output/*
 	cp gibbon output
