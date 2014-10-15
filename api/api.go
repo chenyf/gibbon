@@ -22,6 +22,17 @@ type CommandResponse struct {
 	Error  string `json:"error"`
 }
 
+type RouterInfo struct {
+	Rid   string `json:"rid"`
+	Rname string `json:"rname"`
+}
+
+type ResponseRouterList struct {
+	Status int          `json:"status"`
+	Descr  string       `json:"descr"`
+	List   []RouterInfo `json:"list"`
+}
+
 func checkAuthz(uid string, devid string) bool {
 	return false
 }
@@ -135,6 +146,45 @@ func postRouterCommand(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func getRouterList(w http.ResponseWriter, r *http.Request) {
+	var response ResponseRouterList
+	response.Status = -1
+	if r.Method != "GET" {
+		response.Descr = "must using 'GET' method\n"
+		b, _ := json.Marshal(response)
+		fmt.Fprintf(w, string(b))
+		return
+	}
+	r.ParseForm()
+	rid := r.FormValue("rid")
+	if rid == "" {
+		response.Descr = "missing 'rid'"
+		b, _ := json.Marshal(response)
+		fmt.Fprintf(w, string(b))
+		return
+	}
+
+	uid := r.FormValue("uid")
+	if uid == "" {
+		response.Descr = "missing 'uid'"
+		b, _ := json.Marshal(response)
+		fmt.Fprintf(w, string(b))
+		return
+	}
+
+	router := RouterInfo{
+		Rid:   "c80e774a1e73",
+		Rname: "router1",
+	}
+
+	response.Status = 0
+	response.Descr = "OK"
+	response.List = append(response.List, router)
+
+	b, _ := json.Marshal(response)
+	fmt.Fprintf(w, string(b))
+}
+
 func getCommand(w http.ResponseWriter, r *http.Request) {
 
 	r.ParseForm()
@@ -162,6 +212,7 @@ func getCommand(w http.ResponseWriter, r *http.Request) {
 func StartHttp(addr string) {
 	log.Infof("Starting HTTP server on %s", addr)
 	http.HandleFunc("/router/command", postRouterCommand)
+	http.HandleFunc("/router/list", getRouterList)
 	http.HandleFunc("/command", getCommand)
 	http.HandleFunc("/status", getStatus)
 	err := http.ListenAndServe(addr, nil)
