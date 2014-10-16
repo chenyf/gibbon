@@ -86,9 +86,8 @@ func InitClient(conn *net.TCPConn, devid string) *Client {
 	DevMap.Set(devid, client)
 
 	go func() {
-		log.Tracef("enter send routine")
+		log.Tracef("start send routine for %s", conn.RemoteAddr().String())
 		for {
-			log.Tracef("run loop")
 			select {
 			case pack := <-client.MsgOut:
 				seqid := pack.client.NextSeqId
@@ -103,7 +102,7 @@ func InitClient(conn *net.TCPConn, devid string) *Client {
 					pack.client.WaitingChannels[seqid] = pack.reply
 				}
 			case <-client.ctrl:
-				log.Tracef("leave send routine")
+				log.Tracef("leave send routine for %s", conn.RemoteAddr().String())
 				return
 			}
 		}
@@ -313,4 +312,5 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 	// don't use defer to improve performance
 	log.Infof("close connection %s\n", conn.RemoteAddr().String())
 	CloseClient(client)
+	conn.Close()
 }
