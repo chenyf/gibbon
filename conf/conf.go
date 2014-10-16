@@ -6,8 +6,9 @@ import (
 )
 
 type ConfigStruct struct {
-	Comet string `json:"comet"`
-	Web   string `json:"web"`
+	Comet     string `json:"comet"`
+	Web       string `json:"web"`
+	DevCenter string `json:"devcenter"`
 }
 
 var (

@@ -1,4 +1,4 @@
-all: gibbon tarball
+all: clean gibbon tarball
 
 gibbon:
 	go build
@@ -13,4 +13,5 @@ tarball: gibbon
 	tar -czf gibbon.tgz output
 
 clean:
+	go clean
 	rm -rf gibbon gibbon.tgz output

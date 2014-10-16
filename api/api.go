@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/chenyf/gibbon/comet"
+	"github.com/chenyf/gibbon/devcenter"
 )
 
 type CommandRequest struct {
@@ -155,6 +156,8 @@ func getRouterList(w http.ResponseWriter, r *http.Request) {
 		tid      string
 		response ResponseRouterList
 		router   RouterInfo
+		devices  map[string]devcenter.Device
+		err      error
 	)
 
 	response.Status = -1
@@ -174,6 +177,22 @@ func getRouterList(w http.ResponseWriter, r *http.Request) {
 	if tid == "" {
 		response.Descr = "missing 'tid'"
 		goto resp
+	}
+
+	devices, err = devcenter.GetDevices(uid)
+	if err != nil {
+		log.Errorf("GetDevices failed: %s", err.Error())
+		response.Descr = err.Error()
+		goto resp
+	}
+
+	for _, dev := range devices {
+		log.Debugf("devid: %s, type: %d, title: %s", dev.Id, dev.Type, dev.Title)
+		router = RouterInfo{
+			Rid:   dev.Id,
+			Rname: dev.Title,
+		}
+		response.List = append(response.List, router)
 	}
 
 	router = RouterInfo{

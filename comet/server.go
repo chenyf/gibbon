@@ -182,7 +182,6 @@ func (this *Server) Run(listener *net.TCPListener) {
 		conn, err := listener.AcceptTCP()
 		if err != nil {
 			if e, ok := err.(*net.OpError); ok && e.Timeout() {
-				//log.Printf("accept timeout")
 				continue
 			}
 			log.Errorf("accept failed: %v\n", err)
