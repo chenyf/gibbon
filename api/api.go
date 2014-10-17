@@ -35,8 +35,20 @@ type ResponseRouterList struct {
 }
 
 func checkAuthz(uid string, devid string) bool {
-	//TODO
-	return true
+	log.Tracef("checkAuthz")
+
+	devices, err := devcenter.GetDevices(uid, devcenter.DEV_ROUTER)
+	if err != nil {
+		log.Errorf("GetDevices failed: %s", err.Error())
+		return false
+	}
+
+	for _, dev := range devices {
+		if devid == dev.Id {
+			return true
+		}
+	}
+	return false
 }
 
 func getStatus(w http.ResponseWriter, r *http.Request) {
@@ -45,6 +57,8 @@ func getStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func postRouterCommand(w http.ResponseWriter, r *http.Request) {
+	log.Tracef("postRouterCommand")
+	log.Debugf("Request from RemoterAddr: %s", r.RemoteAddr)
 	var (
 		uid        string
 		rid        string
@@ -75,6 +89,7 @@ func postRouterCommand(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !checkAuthz(uid, rid) {
+		log.Warnf("auth failed. uid: %s, rid: %s", uid, rid)
 		response.Error = "authorization failed"
 		goto resp
 	}
@@ -179,7 +194,7 @@ func getRouterList(w http.ResponseWriter, r *http.Request) {
 		goto resp
 	}
 
-	devices, err = devcenter.GetDevices(uid)
+	devices, err = devcenter.GetDevices(uid, devcenter.DEV_ROUTER)
 	if err != nil {
 		log.Errorf("GetDevices failed: %s", err.Error())
 		response.Descr = err.Error()
@@ -187,7 +202,6 @@ func getRouterList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, dev := range devices {
-		log.Debugf("devid: %s, type: %d, title: %s", dev.Id, dev.Type, dev.Title)
 		router = RouterInfo{
 			Rid:   dev.Id,
 			Rname: dev.Title,
@@ -211,7 +225,7 @@ resp:
 }
 
 func getCommand(w http.ResponseWriter, r *http.Request) {
-
+	log.Tracef("getCommand")
 	r.ParseForm()
 	devid := r.FormValue("devid")
 	if devid == "" {

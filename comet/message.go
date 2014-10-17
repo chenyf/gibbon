@@ -18,7 +18,11 @@ type Message struct {
 }
 
 const (
-	HEADER_SIZE        = uint32(10)
+	HEADER_SIZE  = 10
+	MAX_BODY_LEN = 1024
+)
+
+const (
 	MSG_HEARTBEAT      = uint8(0)
 	MSG_REGISTER       = uint8(1)
 	MSG_REGISTER_REPLY = uint8(2)

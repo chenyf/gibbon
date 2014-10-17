@@ -118,6 +118,7 @@ func CloseClient(client *Client) {
 }
 
 func handleReply(client *Client, header *Header, body []byte) int {
+	log.Debugf("Received reply: %s", body)
 	ch, ok := client.WaitingChannels[header.Seq]
 	if ok {
 		//remove waiting channel from map
@@ -128,6 +129,7 @@ func handleReply(client *Client, header *Header, body []byte) int {
 }
 
 func handleHeartbeat(client *Client, header *Header, body []byte) int {
+	log.Debugf("Heartbeat")
 	client.LastAlive = time.Now()
 	return 0
 }
@@ -273,6 +275,10 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 			}
 		*/
 
+		var (
+			data []byte = nil
+		)
+
 		now := time.Now()
 		if now.After(client.LastAlive.Add(this.heartbeatTimeout)) {
 			log.Warnf("heartbeat timeout")
@@ -281,7 +287,6 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 
 		//conn.SetReadDeadline(time.Now().Add(this.readTimeout))
 		conn.SetReadDeadline(now.Add(10 * time.Second))
-		//headSize := 10
 		buf := make([]byte, HEADER_SIZE)
 		n, err := io.ReadFull(conn, buf)
 		if err != nil {
@@ -292,19 +297,27 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 			log.Errorf("readfull failed (%v)", err)
 			break
 		}
-		//log.Printf("read %d bytes", n)
+
 		var header Header
 		if err := header.Deserialize(buf[0:n]); err != nil {
+			log.Errorf("Deserialize header failed: %s", err.Error())
 			break
 		}
 
-		data := make([]byte, header.Len)
-		if _, err := io.ReadFull(conn, data); err != nil {
-			if e, ok := err.(*net.OpError); ok && e.Timeout() {
-				continue
-			}
-			log.Errorf("read from client failed: (%v)", err)
+		if header.Len > MAX_BODY_LEN {
+			log.Warnf("Msg body to big: %d", header.Len)
 			break
+		}
+
+		if header.Len > 0 {
+			data = make([]byte, header.Len)
+			if _, err := io.ReadFull(conn, data); err != nil {
+				if e, ok := err.(*net.OpError); ok && e.Timeout() {
+					continue
+				}
+				log.Errorf("read from client failed: (%v)", err)
+				break
+			}
 		}
 
 		handler, ok := this.funcMap[header.Type]
