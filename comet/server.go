@@ -129,7 +129,7 @@ func handleReply(client *Client, header *Header, body []byte) int {
 }
 
 func handleHeartbeat(client *Client, header *Header, body []byte) int {
-	log.Debugf("Heartbeat")
+	log.Debugf("Heartbeat from devid: %s", client.devId)
 	client.LastAlive = time.Now()
 	return 0
 }
