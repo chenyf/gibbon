@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/chenyf/gibbon/api"
 	"github.com/chenyf/gibbon/comet"
@@ -69,6 +70,10 @@ func main() {
 		log.Criticalf("Failed to start comet server: %s", err.Error())
 		os.Exit(1)
 	}
+
+	cometServer.SetAcceptTimeout(time.Duration(conf.Config.AcceptTimeout) * time.Second)
+	cometServer.SetReadTimeout(time.Duration(conf.Config.ReadTimeout) * time.Second)
+	cometServer.SetHeartbeatTimeout(time.Duration(conf.Config.HeartbeatTimeout) * time.Second)
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)

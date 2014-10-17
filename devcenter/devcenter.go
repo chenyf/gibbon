@@ -3,12 +3,12 @@ package devcenter
 import (
 	"encoding/json"
 	"errors"
-	//	"fmt"
+	"fmt"
 	log "github.com/cihub/seelog"
 	"io/ioutil"
 	"net/http"
 
-	//	"github.com/chenyf/gibbon/conf"
+	"github.com/chenyf/gibbon/conf"
 )
 
 type Device struct {
@@ -28,8 +28,8 @@ type devicesResult struct {
 
 func GetDevices(uid string) (map[string]Device, error) {
 	log.Tracef("GetDevices")
-	//	url := fmt.Sprintf("http://%s/api/v1/device/bind/?user_id=%s", conf.Config.DevCenter, uid)
-	url := "http://10.154.156.90/api/v1/device/bind/?sso_tk=1023b443f3ioEm2qvcfALkhaKFHP7xsi2oD54M7ihINbij9m2B8oDre4GcquFdCowrSRjla9"
+	url := fmt.Sprintf("http://%s/api/v1/device/bind/?user_id=%s", conf.Config.DevCenter, uid)
+	//url := "http://10.154.156.90/api/v1/device/bind/?sso_tk=1023b443f3ioEm2qvcfALkhaKFHP7xsi2oD54M7ihINbij9m2B8oDre4GcquFdCowrSRjla9"
 	res, err := http.Get(url)
 	if err != nil {
 		return nil, err

@@ -195,14 +195,14 @@ func getRouterList(w http.ResponseWriter, r *http.Request) {
 		response.List = append(response.List, router)
 	}
 
-	router = RouterInfo{
-		Rid:   "c80e774a1e73",
-		Rname: "router1",
-	}
+	//router = RouterInfo{
+	//	Rid:   "c80e774a1e73",
+	//	Rname: "router1",
+	//}
+	//response.List = append(response.List, router)
 
 	response.Status = 0
 	response.Descr = "OK"
-	response.List = append(response.List, router)
 
 resp:
 	b, _ := json.Marshal(response)

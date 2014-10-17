@@ -14,24 +14,26 @@ import (
 type MsgHandler func(*Client, *Header, []byte) int
 
 type Server struct {
-	exitCh        chan bool
-	waitGroup     *sync.WaitGroup
-	funcMap       map[uint8]MsgHandler
-	acceptTimeout time.Duration
-	readTimeout   time.Duration
-	writeTimeout  time.Duration
-	maxMsgLen     uint32
+	exitCh           chan bool
+	waitGroup        *sync.WaitGroup
+	funcMap          map[uint8]MsgHandler
+	acceptTimeout    time.Duration
+	readTimeout      time.Duration
+	writeTimeout     time.Duration
+	heartbeatTimeout time.Duration
+	maxMsgLen        uint32
 }
 
 func NewServer() *Server {
 	return &Server{
-		exitCh:        make(chan bool),
-		waitGroup:     &sync.WaitGroup{},
-		funcMap:       make(map[uint8]MsgHandler),
-		acceptTimeout: 60,
-		readTimeout:   60,
-		writeTimeout:  60,
-		maxMsgLen:     2048,
+		exitCh:           make(chan bool),
+		waitGroup:        &sync.WaitGroup{},
+		funcMap:          make(map[uint8]MsgHandler),
+		acceptTimeout:    2 * time.Second,
+		readTimeout:      60 * time.Second,
+		writeTimeout:     60 * time.Second,
+		heartbeatTimeout: 90 * time.Second,
+		maxMsgLen:        2048,
 	}
 }
 
@@ -130,12 +132,16 @@ func handleHeartbeat(client *Client, header *Header, body []byte) int {
 	return 0
 }
 
-func (this *Server) SetAcceptTimeout(acceptTimeout time.Duration) {
-	this.acceptTimeout = acceptTimeout
+func (this *Server) SetAcceptTimeout(timeout time.Duration) {
+	this.acceptTimeout = timeout
 }
 
-func (this *Server) SetReadTimeout(readTimeout time.Duration) {
-	this.readTimeout = readTimeout
+func (this *Server) SetReadTimeout(timeout time.Duration) {
+	this.readTimeout = timeout
+}
+
+func (this *Server) SetHeartbeatTimeout(timeout time.Duration) {
+	this.heartbeatTimeout = timeout
 }
 
 func (this *Server) SetWriteTimeout(writeTimeout time.Duration) {
@@ -167,17 +173,17 @@ func (this *Server) Run(listener *net.TCPListener) {
 
 	//go this.dealSpamConn()
 	log.Infof("Starting comet server on: %s\n", listener.Addr().String())
+	log.Infof("Comet server settings: readtimeout [%d], accepttimeout [%d], heartbeattimeout [%d]\n",
+		this.readTimeout, this.acceptTimeout, this.heartbeatTimeout)
 	for {
 		select {
 		case <-this.exitCh:
-			log.Infof("ask me to quit")
+			log.Infof("Stopping comet server")
 			return
 		default:
 		}
 
-		listener.SetDeadline(time.Now().Add(2 * time.Second))
-		//listener.SetDeadline(time.Now().Add(this.acceptTimeout))
-		//log.Printf("before accept, %d", this.acceptTimeout)
+		listener.SetDeadline(time.Now().Add(this.acceptTimeout))
 		conn, err := listener.AcceptTCP()
 		if err != nil {
 			if e, ok := err.(*net.OpError); ok && e.Timeout() {
@@ -268,7 +274,7 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 		*/
 
 		now := time.Now()
-		if now.After(client.LastAlive.Add(90 * time.Second)) {
+		if now.After(client.LastAlive.Add(this.heartbeatTimeout)) {
 			log.Warnf("heartbeat timeout")
 			break
 		}
@@ -276,7 +282,7 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 		//conn.SetReadDeadline(time.Now().Add(this.readTimeout))
 		conn.SetReadDeadline(now.Add(10 * time.Second))
 		//headSize := 10
-		buf := make([]byte, 10)
+		buf := make([]byte, HEADER_SIZE)
 		n, err := io.ReadFull(conn, buf)
 		if err != nil {
 			if e, ok := err.(*net.OpError); ok && e.Timeout() {
