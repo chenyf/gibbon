@@ -305,7 +305,7 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 		}
 
 		if header.Len > MAX_BODY_LEN {
-			log.Warnf("Msg body to big: %d", header.Len)
+			log.Warnf("Msg body too big: %d", header.Len)
 			break
 		}
 

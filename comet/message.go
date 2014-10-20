@@ -19,7 +19,7 @@ type Message struct {
 
 const (
 	HEADER_SIZE  = 10
-	MAX_BODY_LEN = 1024
+	MAX_BODY_LEN = 20 * 1024
 )
 
 const (
