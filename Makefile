@@ -1,12 +1,16 @@
-all: clean gibbon tarball
+all: clean init gibbon tarball
 
-gibbon:
-	go build
-
-tarball: gibbon
+init:
 	mkdir -p output
 	rm -rf output/*
-	cp gibbon output
+
+gibbon:
+	cd gibbond && go build -o ../output/gibbond 
+
+#gibbonapi:
+#	cd gibbonapi && go build
+
+tarball: init gibbon
 	cp control.sh output
 	cp -r etc output
 	cp misc/setupenv.sh output
@@ -15,3 +19,4 @@ tarball: gibbon
 clean:
 	go clean
 	rm -rf gibbon gibbon.tgz output
+
