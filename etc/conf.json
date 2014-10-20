@@ -1,0 +1,9 @@
+{
+	"comet" 			: "0.0.0.0:10000",
+	"accept_timeout"	: 2,
+	"read_timeout"		: 60,
+	"heartbeat_timeout"	: 90,
+
+	"web"				: "0.0.0.0:9090",
+	"devcenter"			: "10.154.156.90"
+}
