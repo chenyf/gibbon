@@ -10,6 +10,7 @@
 		"enable"		: true,
 		"addr"			: "10.154.156.121:2181",
 		"timeout"		: 30,
-		"path"			: "/gibbon"
+		"root"			: "/gibbon",
+		"comet_addr"	: "111.206.210.49:10000"
 	}
 }

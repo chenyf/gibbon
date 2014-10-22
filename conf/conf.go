@@ -15,10 +15,11 @@ type ConfigStruct struct {
 	DevCenter string `json:"devcenter"`
 
 	ZooKeeper struct {
-		Enable  bool          `json:"enable"`
-		Addr    string        `json:"addr"`
-		Timeout time.Duration `json:"timeout"`
-		Path    string        `json:"path"`
+		Enable    bool   `json:"enable"`
+		Addr      string `json:"addr"`
+		Timeout   int    `json:"timeout"`
+		Root      string `json:"root"`
+		CometAddr string `json:"comet_addr"` // internet IP:port address of this comet server
 	} `json:"zookeeper"`
 }
 
