@@ -25,12 +25,12 @@ type devicesResult struct {
 	Errno  int    `json:"errno"`
 	Errmsg string `json:"errmsg"`
 	Data   struct {
-		UserOpenId int               `json:"userOpenId"`
-		DeviceList map[string]Device `json:"device"`
+		UserOpenId int      `json:"userOpenId"`
+		DeviceList []Device `json:"device"`
 	} `json:"data"`
 }
 
-func GetDevices(uid string, devType int) (map[string]Device, error) {
+func GetDevices(uid string, devType int) ([]Device, error) {
 	log.Tracef("GetDevices")
 	url := fmt.Sprintf("http://%s/api/v1/device/bind/?user_id=%s&type=%d", conf.Config.DevCenter, uid, devType)
 	res, err := http.Get(url)

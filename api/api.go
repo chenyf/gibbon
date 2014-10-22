@@ -171,7 +171,7 @@ func getRouterList(w http.ResponseWriter, r *http.Request) {
 		tid      string
 		response ResponseRouterList
 		router   RouterInfo
-		devices  map[string]devcenter.Device
+		devices  []devcenter.Device
 		err      error
 	)
 
