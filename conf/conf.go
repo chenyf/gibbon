@@ -13,6 +13,14 @@ type ConfigStruct struct {
 
 	Web       string `json:"web"`
 	DevCenter string `json:"devcenter"`
+
+	ZooKeeper struct {
+		Enable    bool   `json:"enable"`
+		Addr      string `json:"addr"`
+		Timeout   int    `json:"timeout"`
+		Root      string `json:"root"`
+		CometAddr string `json:"comet_addr"` // internet IP:port address of this comet server
+	} `json:"zookeeper"`
 }
 
 var (

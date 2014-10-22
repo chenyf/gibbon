@@ -17,6 +17,7 @@ import (
 	"github.com/chenyf/gibbon/api"
 	"github.com/chenyf/gibbon/comet"
 	"github.com/chenyf/gibbon/conf"
+	"github.com/chenyf/gibbon/zk"
 )
 
 func sign(path string, query map[string]string) []byte {
@@ -86,6 +87,22 @@ func main() {
 		waitGroup.Done()
 		log.Infof("leave 2")
 	}()
+
+	if conf.Config.ZooKeeper.Enable {
+		if err := zk.ProduceZnode(conf.Config.ZooKeeper.Addr,
+			conf.Config.ZooKeeper.Root,
+			conf.Config.ZooKeeper.CometAddr,
+			time.Duration(conf.Config.ZooKeeper.Timeout)*time.Second); err != nil {
+			log.Criticalf("ProduceZnode failed: %s", err.Error())
+			os.Exit(1)
+		}
+		if err := zk.Watch(conf.Config.ZooKeeper.Addr,
+			conf.Config.ZooKeeper.Root,
+			time.Duration(conf.Config.ZooKeeper.Timeout)*time.Second); err != nil {
+			log.Criticalf("Watch failed: %s", err.Error())
+			os.Exit(1)
+		}
+	}
 
 	go func() {
 		cometServer.Run(listener)
