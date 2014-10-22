@@ -17,6 +17,7 @@ import (
 	"github.com/chenyf/gibbon/api"
 	"github.com/chenyf/gibbon/comet"
 	"github.com/chenyf/gibbon/conf"
+	"github.com/chenyf/gibbon/zk"
 )
 
 func sign(path string, query map[string]string) []byte {
@@ -86,6 +87,13 @@ func main() {
 		waitGroup.Done()
 		log.Infof("leave 2")
 	}()
+
+	if conf.Config.ZooKeeper.Enable {
+		if err := zk.InitZk(); err != nil {
+			log.Criticalf("InitZk failed: %s", err.Error())
+			os.Exit(1)
+		}
+	}
 
 	go func() {
 		cometServer.Run(listener)

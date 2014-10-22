@@ -13,6 +13,13 @@ type ConfigStruct struct {
 
 	Web       string `json:"web"`
 	DevCenter string `json:"devcenter"`
+
+	ZooKeeper struct {
+		Enable  bool          `json:"enable"`
+		Addr    string        `json:"addr"`
+		Timeout time.Duration `json:"timeout"`
+		Path    string        `json:"path"`
+	} `json:"zookeeper"`
 }
 
 var (
