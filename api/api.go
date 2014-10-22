@@ -11,6 +11,7 @@ import (
 
 	"github.com/chenyf/gibbon/comet"
 	"github.com/chenyf/gibbon/devcenter"
+	"github.com/chenyf/gibbon/zk"
 )
 
 type CommandRequest struct {
@@ -248,12 +249,24 @@ func getCommand(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func getGibbon(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		fmt.Fprintf(w, "must using 'GET' method\n")
+		return
+	}
+	b, _ := json.Marshal(zk.GetComet())
+	w.Write(b)
+}
+
 func StartHttp(addr string) {
 	log.Infof("Starting HTTP server on %s", addr)
 	http.HandleFunc("/router/command", postRouterCommand)
 	http.HandleFunc("/router/list", getRouterList)
 	http.HandleFunc("/command", getCommand)
 	http.HandleFunc("/status", getStatus)
+
+	http.HandleFunc("/gibbon", getGibbon)
+
 	err := http.ListenAndServe(addr, nil)
 	if err != nil {
 		log.Criticalf("http listen: ", err)

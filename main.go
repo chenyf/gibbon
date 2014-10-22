@@ -89,8 +89,17 @@ func main() {
 	}()
 
 	if conf.Config.ZooKeeper.Enable {
-		if err := zk.InitZk(); err != nil {
-			log.Criticalf("InitZk failed: %s", err.Error())
+		if err := zk.ProduceZnode(conf.Config.ZooKeeper.Addr,
+			conf.Config.ZooKeeper.Root,
+			conf.Config.ZooKeeper.CometAddr,
+			time.Duration(conf.Config.ZooKeeper.Timeout)*time.Second); err != nil {
+			log.Criticalf("ProduceZnode failed: %s", err.Error())
+			os.Exit(1)
+		}
+		if err := zk.Watch(conf.Config.ZooKeeper.Addr,
+			conf.Config.ZooKeeper.Root,
+			time.Duration(conf.Config.ZooKeeper.Timeout)*time.Second); err != nil {
+			log.Criticalf("Watch failed: %s", err.Error())
 			os.Exit(1)
 		}
 	}
