@@ -14,6 +14,18 @@ import (
 	"github.com/chenyf/gibbon/zk"
 )
 
+type ApiResponse struct {
+	ErrNo  int    `json:"errno"`
+	ErrMsg string `json:"errmsg"`
+	//ErrMsg string      `json:"errmsg,omitempty"`
+	Data interface{} `json:"data"`
+	//Data   interface{} `json:"data,omitempty"`
+}
+
+const (
+	ERR_NOERROR = 10000
+)
+
 type CommandRequest struct {
 	Uid string `json:"uid"`
 	Cmd string `json:"cmd"`
@@ -254,7 +266,29 @@ func getGibbon(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "must using 'GET' method\n")
 		return
 	}
-	b, _ := json.Marshal(zk.GetComet())
+	resp := ApiResponse{
+		ErrNo: ERR_NOERROR,
+		Data:  zk.GetComet(),
+	}
+	b, _ := json.Marshal(resp)
+	w.Write(b)
+}
+
+func getDevices(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		fmt.Fprintf(w, "must using 'GET' method\n")
+		return
+	}
+	devices := []string{}
+	devMap := comet.DevMap.Items()
+	for devId, _ := range devMap {
+		devices = append(devices, devId.(string))
+	}
+	resp := ApiResponse{
+		ErrNo: ERR_NOERROR,
+		Data:  devices,
+	}
+	b, _ := json.Marshal(resp)
 	w.Write(b)
 }
 
@@ -265,7 +299,8 @@ func StartHttp(addr string) {
 	http.HandleFunc("/command", getCommand)
 	http.HandleFunc("/status", getStatus)
 
-	http.HandleFunc("/gibbon", getGibbon)
+	http.HandleFunc("/api/v1/server", getGibbon)
+	http.HandleFunc("/api/v1/devices", getDevices)
 
 	err := http.ListenAndServe(addr, nil)
 	if err != nil {
