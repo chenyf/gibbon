@@ -8,9 +8,10 @@ tarball: gibbon
 	rm -rf output/*
 	cp gibbon output
 	cp control.sh output
-	cp etc/conf_product.json output/conf.json
-	cp etc/log_product.xml output/log.xml
-	cp etc/supervisord.conf output/
+	mkdir -p output/etc
+	cp etc/conf_product.json output/etc/conf.json
+	cp etc/log_product.xml output/etc/log.xml
+	cp etc/supervisord.conf output/etc/
 	cp misc/setupenv.sh output
 	tar -czf gibbon.tgz output
 

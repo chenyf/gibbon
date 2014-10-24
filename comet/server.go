@@ -88,7 +88,7 @@ func InitClient(conn *net.TCPConn, devid string) *Client {
 	DevMap.Set(devid, client)
 
 	go func() {
-		log.Tracef("start send routine for %s", conn.RemoteAddr().String())
+		log.Tracef("start send routine for [%s] [%s]", devid, conn.RemoteAddr().String())
 		for {
 			select {
 			case pack := <-client.MsgOut:
@@ -97,14 +97,14 @@ func InitClient(conn *net.TCPConn, devid string) *Client {
 				b, _ := pack.msg.Header.Serialize()
 				conn.Write(b)
 				conn.Write(pack.msg.Data)
-				log.Infof("send msg ok, (%s)", string(pack.msg.Data))
+				log.Infof("send msg to [%s]: (%s)", devid, string(pack.msg.Data))
 				pack.client.NextSeqId += 1
 				// add reply channel
 				if pack.reply != nil {
 					pack.client.WaitingChannels[seqid] = pack.reply
 				}
 			case <-client.ctrl:
-				log.Tracef("leave send routine for %s", conn.RemoteAddr().String())
+				log.Tracef("leave send routine for [%s] [%s]", devid, conn.RemoteAddr().String())
 				return
 			}
 		}
@@ -118,7 +118,7 @@ func CloseClient(client *Client) {
 }
 
 func handleReply(client *Client, header *Header, body []byte) int {
-	log.Debugf("Received reply: %s", body)
+	log.Debugf("Received reply from [%s]: %s", client.devId, body)
 	ch, ok := client.WaitingChannels[header.Seq]
 	if ok {
 		//remove waiting channel from map
@@ -257,7 +257,6 @@ func waitRegister(conn *net.TCPConn) *Client {
 
 // handle a TCP connection
 func (this *Server) handleConnection(conn *net.TCPConn) {
-	log.Debugf("accept connection (%v)", conn)
 	log.Infof("New conn accepted from %s\n", conn.RemoteAddr().String())
 	// handle register first
 	client := waitRegister(conn)
@@ -281,7 +280,7 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 
 		now := time.Now()
 		if now.After(client.LastAlive.Add(this.heartbeatTimeout)) {
-			log.Warnf("heartbeat timeout")
+			log.Warnf("Device [%s] heartbeat timeout", client.devId)
 			break
 		}
 
@@ -329,7 +328,8 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 		}
 	}
 	// don't use defer to improve performance
-	log.Infof("close connection %s\n", conn.RemoteAddr().String())
+	log.Infof("closing device [%s] [%s]\n", client.devId, conn.RemoteAddr().String())
 	CloseClient(client)
+	log.Infof("close connection [%s]\n", conn.RemoteAddr().String())
 	conn.Close()
 }
