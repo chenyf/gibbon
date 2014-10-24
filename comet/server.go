@@ -38,12 +38,13 @@ func NewServer() *Server {
 }
 
 type Client struct {
-	devId           string
+	DevId           string
 	ctrl            chan bool
 	MsgOut          chan *Pack
 	WaitingChannels map[uint32]chan *Message
 	NextSeqId       uint32
 	LastAlive       time.Time
+	RegistTime      time.Time
 }
 
 type Pack struct {
@@ -78,12 +79,13 @@ var (
 
 func InitClient(conn *net.TCPConn, devid string) *Client {
 	client := &Client{
-		devId:           devid,
+		DevId:           devid,
 		ctrl:            make(chan bool),
 		MsgOut:          make(chan *Pack, 100),
 		WaitingChannels: make(map[uint32]chan *Message),
 		NextSeqId:       1,
 		LastAlive:       time.Now(),
+		RegistTime:      time.Now(),
 	}
 	DevMap.Set(devid, client)
 
@@ -114,11 +116,11 @@ func InitClient(conn *net.TCPConn, devid string) *Client {
 
 func CloseClient(client *Client) {
 	client.ctrl <- true
-	DevMap.Delete(client.devId)
+	DevMap.Delete(client.DevId)
 }
 
 func handleReply(client *Client, header *Header, body []byte) int {
-	log.Debugf("Received reply from [%s]: %s", client.devId, body)
+	log.Debugf("Received reply from [%s]: %s", client.DevId, body)
 	ch, ok := client.WaitingChannels[header.Seq]
 	if ok {
 		//remove waiting channel from map
@@ -129,7 +131,7 @@ func handleReply(client *Client, header *Header, body []byte) int {
 }
 
 func handleHeartbeat(client *Client, header *Header, body []byte) int {
-	log.Debugf("Heartbeat from devid: %s", client.devId)
+	log.Debugf("Heartbeat from devid: %s", client.DevId)
 	client.LastAlive = time.Now()
 	return 0
 }
@@ -280,7 +282,7 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 
 		now := time.Now()
 		if now.After(client.LastAlive.Add(this.heartbeatTimeout)) {
-			log.Warnf("Device [%s] heartbeat timeout", client.devId)
+			log.Warnf("Device [%s] heartbeat timeout", client.DevId)
 			break
 		}
 
@@ -328,7 +330,7 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 		}
 	}
 	// don't use defer to improve performance
-	log.Infof("closing device [%s] [%s]\n", client.devId, conn.RemoteAddr().String())
+	log.Infof("closing device [%s] [%s]\n", client.DevId, conn.RemoteAddr().String())
 	CloseClient(client)
 	log.Infof("close connection [%s]\n", conn.RemoteAddr().String())
 	conn.Close()

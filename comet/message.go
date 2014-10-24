@@ -28,8 +28,6 @@ const (
 	MSG_REGISTER_REPLY = uint8(2)
 	MSG_REQUEST        = uint8(3)
 	MSG_REQUEST_REPLY  = uint8(4)
-	MSG_ECHO           = uint8(8)
-	MSG_ECHO_REPLY     = uint8(9)
 )
 
 // msg to byte

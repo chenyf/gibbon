@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/ant0ine/go-json-rest/rest"
 	"github.com/chenyf/gibbon/comet"
 	"github.com/chenyf/gibbon/devcenter"
 	"github.com/chenyf/gibbon/zk"
@@ -64,9 +65,12 @@ func checkAuthz(uid string, devid string) bool {
 	return false
 }
 
-func getStatus(w http.ResponseWriter, r *http.Request) {
-	size := comet.DevMap.Size()
-	fmt.Fprintf(w, "total register device: %d\n", size)
+func getStatus(w rest.ResponseWriter, r *rest.Request) {
+	resp := ApiResponse{
+		ErrNo: ERR_NOERROR,
+		Data:  fmt.Sprintf("Total registered devices: %d", comet.DevMap.Size()),
+	}
+	w.WriteJson(resp)
 }
 
 func postRouterCommand(w http.ResponseWriter, r *http.Request) {
@@ -166,7 +170,7 @@ func postRouterCommand(w http.ResponseWriter, r *http.Request) {
 	case msg := <-reply:
 		w.Write(msg.Data)
 	case <-time.After(10 * time.Second):
-		response.Error = "recv response timeout"
+		response.Error = fmt.Sprintf("recv response timeout [%s]", client.DevId)
 		goto resp
 	}
 	return
@@ -237,48 +241,15 @@ resp:
 	w.Write(b)
 }
 
-func getCommand(w http.ResponseWriter, r *http.Request) {
-	log.Tracef("getCommand")
-	r.ParseForm()
-	devid := r.FormValue("devid")
-	if devid == "" {
-		fmt.Fprintf(w, "missing devid\n")
-		return
-	}
-	if !comet.DevMap.Check(devid) {
-		fmt.Fprintf(w, "(%s) not register\n", devid)
-		return
-	}
-	cmd := r.FormValue("cmd")
-	client := comet.DevMap.Get(devid).(*comet.Client)
-	reply := make(chan *comet.Message)
-	client.SendMessage(comet.MSG_REQUEST, []byte(cmd), reply)
-	select {
-	case msg := <-reply:
-		fmt.Fprintf(w, "recv reply  (%s)\n", string(msg.Data))
-	case <-time.After(10 * time.Second):
-		fmt.Fprintf(w, "recv timeout\n")
-	}
-}
-
-func getGibbon(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		fmt.Fprintf(w, "must using 'GET' method\n")
-		return
-	}
+func getGibbon(w rest.ResponseWriter, r *rest.Request) {
 	resp := ApiResponse{
 		ErrNo: ERR_NOERROR,
 		Data:  zk.GetComet(),
 	}
-	b, _ := json.Marshal(resp)
-	w.Write(b)
+	w.WriteJson(resp)
 }
 
-func getDevices(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		fmt.Fprintf(w, "must using 'GET' method\n")
-		return
-	}
+func getDevices(w rest.ResponseWriter, r *rest.Request) {
 	devices := []string{}
 	devMap := comet.DevMap.Items()
 	for devId, _ := range devMap {
@@ -288,21 +259,59 @@ func getDevices(w http.ResponseWriter, r *http.Request) {
 		ErrNo: ERR_NOERROR,
 		Data:  devices,
 	}
-	b, _ := json.Marshal(resp)
-	w.Write(b)
+	w.WriteJson(resp)
+}
+
+func getDevice(w rest.ResponseWriter, r *rest.Request) {
+	type DevInfo struct {
+		Id        string `json:"id"`
+		LastAlive string `json:"last_alive"`
+		RegTime   string `json:"reg_time"`
+	}
+
+	devId := r.PathParam("devid")
+	if !comet.DevMap.Check(devId) {
+		rest.NotFound(w, r)
+		return
+	}
+	client := comet.DevMap.Get(devId).(*comet.Client)
+	devInfo := DevInfo{
+		Id:        client.DevId,
+		LastAlive: client.LastAlive.String(),
+		RegTime:   client.RegistTime.String(),
+	}
+	resp := ApiResponse{
+		ErrNo: ERR_NOERROR,
+		Data:  devInfo,
+	}
+	w.WriteJson(resp)
 }
 
 func StartHttp(addr string) {
 	log.Infof("Starting HTTP server on %s", addr)
+
+	handler := rest.ResourceHandler{}
+	err := handler.SetRoutes(
+		&rest.Route{"GET", "/devices", getDevices},
+		&rest.Route{"GET", "/devices/:devid", getDevice},
+		&rest.Route{"GET", "/server", getGibbon},
+		&rest.Route{"GET", "/status", getStatus},
+		//		&rest.Route{"POST", "/countries", PostCountry},
+		//		&rest.Route{"DELETE", "/countries/:code", DeleteCountry},
+	)
+	if err != nil {
+		log.Criticalf("http SetRoutes: ", err)
+		os.Exit(1)
+	}
+
+	// the adapter API for old system
 	http.HandleFunc("/router/command", postRouterCommand)
 	http.HandleFunc("/router/list", getRouterList)
-	http.HandleFunc("/command", getCommand)
-	http.HandleFunc("/status", getStatus)
 
-	http.HandleFunc("/api/v1/server", getGibbon)
-	http.HandleFunc("/api/v1/devices", getDevices)
+	// new API
+	http.Handle("/api/v1/", http.StripPrefix("/api/v1", &handler))
 
-	err := http.ListenAndServe(addr, nil)
+	err = http.ListenAndServe(addr, nil)
 	if err != nil {
 		log.Criticalf("http listen: ", err)
 		os.Exit(1)
