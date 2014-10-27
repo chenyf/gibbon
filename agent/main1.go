@@ -13,36 +13,221 @@ import (
 	"os"
 	"strings"
 	"time"
+	"github.com/chenyf/gibbon/util"
+	"github.com/chenyf/gibbon/conf"
 )
 
-type Js struct {
-	data interface{}
+type MsgHandler func(*net.TCPConn, *Header, []byte) int
+type Pack struct {
+	msg    *Message
+	client *Client
+	reply  chan *Message
 }
 
-const CLIENTERROR = 10
+type Agent struct {
+	done	chan bool
+	funcMap       map[uint8]MsgHandler
+}
 
-var Sequence uint32
+func NewAgent() *Agent {
+	agent := &Agent{
+		done: make(chan bool),
+		funcMap: make(map[uint8]MsgHandler),
+	}
+	agent.funcMap[MSG_REGISTER_REPLY] = handlerRegisterReply
+	agent.funcMap[MSG_COMMAND]        = handlerCommnd
+	return agent
+}
+
+func (this *Agent)Run() {
+	var c Conn
+	addSlice = strings.Split(Config.Address)
+	for {
+		select {
+			case this->done:
+				break
+			default:
+		}
+		if c.conn == nil {
+			if ok := c.Make(addSlice[0]); !ok {
+				time.Sleep(1*time.Seconds)
+				continue
+			}
+			c.Start()
+		}
+		n := c.Read()
+		if n < 0 {
+		// failed
+			c.Close()
+			continue
+		} else if n > 0 {
+		// need more data
+			continue
+		}
+		// ok
+		if handler, ok := this.funcMap[c.header.Type]; ok {
+			handler(c.conn, &c.header, c.dataBuf)
+		} else {
+			log.Warnf("unkonw")
+		}
+		c.BufReset()
+	}
+}
+
+func (this *Agent)Stop() {
+	this->done <- true
+}
+
+func handleRegisterReply() {
+	return 0
+}
+
+func handleCommand() {
+	return 0
+}
+
+type Server struct {
+	DeviceId string
+}
+type Serverslice struct {
+	Servers []Server
+}
+
+type CommandHttpResponse struct {
+	Status uint8  `json:"status"`
+	Result string `json:"result"`
+	Descr  string `json:"descr"`
+}
+
+type Conn struct {
+	conn *net.TCPConn
+	readFlag int
+	nRead    int
+	headBuf	 []byte
+	dataBuf  []byte
+	header   Header
+}
+
+func NewConn() *Conn {
+	return &Conn{
+		headBuf = make([]byte, HEADER_SIZE)
+	}
+}
+
+func (this *Conn)Make(service string) bool {
+	log.Infof("try to connect server address :%v\n", service)
+	tcpAddr, err := net.ResolveTCPAddr("tcp4", service)
+	if err != nil {
+		log.Infof("resolve tcp address fail:%v\n", err)
+		return false
+	}
+
+	conn, err = net.DialTCP("tcp", nil, tcpAddr)
+	if err != nil {
+		return false
+	}
+	conn.SetNoDelay(true)
+	return true
+}
+
+func (this *Conn)Start() {
+	macAddr, err := util.GetMac()
+	b := []byte(macAddr)
+	this.SendMessage(MSG_REGISTER, b, nil)
+	go func() {
+        timer := time.NewTicker(60*time.Second)
+		heartbeat := make([]byte, 1)
+		heartbeat[0] = 0
+		for {
+			select {
+			case <-this->done:
+				return
+			case msg := this->outMsgs:
+                //seqid := pack.client.nextSeq
+				//pack.msg.Header.Seq = seqid
+				b, _ := pack.msg.Header.Serialize()
+				conn.Write(b)
+				conn.Write(pack.msg.Data)
+				log.Infof("%s: send msg: (%d) (%s)", client.devId, pack.msg.Header.Type, pack.msg.Data)
+				//pack.client.nextSeq += 1
+				time.Sleep(0.1 * time.Second)
+			case <- timer.C:
+				conn.Write(heartbeat)
+			}
+		}
+	}()
+}
+
+func (this *Conn)Read() int {
+	if this.readFlag == 0 {
+		n = myread(this.conn, this.headBuf[this.nRead:])
+		if n < 0 {
+			return -1
+		} else if n == 0 {
+			return 1
+		}
+		this.nRead += n
+		if uint32(this.nRead) < HEADER_SIZE {
+			return 1
+		}
+
+		if err := this.header.Deserialize(this.headBuf[0:HEADER_SIZE]); err != nil {
+			return -1
+		}
+
+		if this.header.Len <= 0 {
+			this.nRead = 0
+			return 1
+		}
+		this.readFlag = 1
+		this.dataBuf = make([]byte, this.header.Len)
+		this.nRead = 0
+	}
+	n = myread(this.conn, this.dataBuf[this.nRead:])
+	if n < 0 {
+		return -1
+	} else if n == 0 {
+		return 1
+	}
+	this.nRead += n
+	if uint32(this.nRead) < this.header.Len {
+		return 1
+	}
+	return 0
+}
+
+func (this *Conn)BufReset() {
+	this.readFlag = 0
+	this.nRead = 0
+}
+
+func (this *Conn)Close() {
+	this.done <- true
+	this.conn.Close()
+	this.conn = nil
+	this.BufReset()
+}
+
+func (this *Conn)SendMessage(msgType uint8, body []byte, reply chan *Message) {
+    header := Header{
+		Type: msgType,
+		Ver:  0,
+		Seq:  0,
+		Len:  uint32(len(body)),
+	}
+	msg := &Message{
+		Header: header,
+		Data:   body,
+	}
+	pack := &Pack{
+		msg:    msg,
+		client: client,
+		reply:  reply,
+	}
+	this.outMsgs <- pack
+}
 
 func main() {
-	/*
-	   if len(os.Args) != 2 {
-	           log.Infof("Usage : %s host:port",os.Args[0])
-	           os.Exit(1)
-	   } */
-	//setLogOutput("./log.txt")
-	//set client count
-	for clientCount := 0; clientCount < 1; clientCount++ {
-		go clientProcess()
-	}
-	for {
-		time.Sleep(3600000 * time.Second)
-	}
-}
-
-func clientProcess() {
-	var result uint8
-	var conn *net.TCPConn
-
 	err := LoadConfig("/system/etc/conf.json")
 	if err != nil {
 		fmt.Printf("LoadConfig failed: (%s)", err)
@@ -56,416 +241,15 @@ func clientProcess() {
 	}
 	log.ReplaceLogger(logger)
 
-	var addSlice []string
-	addSlice = strings.Split(Config.Address, ";")
-	log.Infof("content: %s\n", addSlice)
-	//var err os.Error
-	//service := os.Args[1]
-	//service := "10.58.65.221:9000"
-	for {
-		serverIpList := addSlice
-		for _, service := range serverIpList {
-			log.Infof("try to connect server address :%v\n", service)
-			tcpAddr, err := net.ResolveTCPAddr("tcp4", service)
-			if err != nil {
-				log.Infof("resolve tcp address fail:%v\n", err)
-				continue
-			}
+	wg := &sync.WaitGroup{}
+	agent := NewAgent()
+	c := make(chan os.Signal, 1)
+    signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 
-			conn, err = net.DialTCP("tcp", nil, tcpAddr)
-			if err != nil {
-				log.Infof("conection fail:%v\n", err)
-				time.Sleep(5 * time.Second)
-				continue
-			}
-			break
-		}
-		if conn != nil {
-			defer conn.Close()
-
-			conn.SetNoDelay(true)
-			result = messgeProcess(conn)
-			if result == uint8(CLIENTERROR) {
-				log.Infof("reconnect server")
-				continue
-			} else {
-				break
-			}
-		} else {
-			continue
-		}
-	}
-
-}
-
-type Packet struct {
-	Type uint8
-	Ver  uint8
-	Seq  uint32
-	Len  uint32
-	Data []byte
-}
-
-type Server struct {
-	DeviceId string
-}
-type Serverslice struct {
-	Servers []Server
-}
-
-func (this *Packet) GetBytes() (buf []byte) {
-	buf = append(buf, Uint8ToBytes(this.Type)...)
-	buf = append(buf, Uint8ToBytes(this.Ver)...)
-	buf = append(buf, Uint32ToBytes(this.Seq)...)
-	buf = append(buf, Uint32ToBytes(this.Len)...)
-	buf = append(buf, this.Data...)
-	return buf
-}
-
-func SendByteStream(conn *net.TCPConn, buf []byte) error {
-	log.Infof("send data header:%v", buf[0:10])
-	log.Infof("send data body:%s", string(buf[10:]))
-	n, err := conn.Write(buf)
-	if n != len(buf) || err != nil {
-		log.Infof("SendByteStream Write(): %v\n", err)
-		return err
-	}
-	return nil
-}
-
-
-func SendByteStreamKeepAlive(conn *net.TCPConn, buf []byte) error {
-        log.Infof("send data header:%v", buf[0:10])
-        n, err := conn.Write(buf[0:10])
-        if n != len(buf) || err != nil {
-                log.Infof("SendByteStream Write(): %v\n", err)
-                return err
-        }
-        return nil
-}
-
-type RegisterInfo struct {
-	Deviceid string
-}
-
-func SendKeepAliveData(conn *net.TCPConn, dataType uint8) error {
-	var pac Packet
-	pac.Type = dataType
-	pac.Seq = uint32(1)
-	pac.Ver = 88
-	pac.Len = uint32(0)
-	var buf []byte = make([]byte, 10)
-	buf = append(buf, Uint8ToBytes(pac.Type)...)
-	buf = append(buf, Uint8ToBytes(pac.Ver)...)
-	buf = append(buf, Uint32ToBytes(pac.Seq)...)
-	buf = append(buf, Uint32ToBytes(pac.Len)...)
-	log.Infof("client will send keepalive message")
-	return SendByteStreamKeepAlive(conn, buf)
-}
-
-func SendRegisterData(conn *net.TCPConn, dataType uint8) error {
-	var b []byte
-	macAddr, err := getMac()
-	if err != nil {
-		log.Infof("get mac addres failed:%v\n", err)
-	}
-	b = []byte(macAddr)
-	var pac Packet
-	pac.Type = dataType
-	pac.Seq = Sequence + uint32(1)
-	pac.Ver = 88
-	pac.Len = uint32(len(b))
-	pac.Data = b
-	log.Infof("client will send register message")
-	return SendByteStream(conn, pac.GetBytes())
-}
-
-type ResponseInfo struct {
-	Result string
-}
-
-func SendResponseData(conn *net.TCPConn, dataType uint8, body []byte, bSeq uint32) error {
-	var pac Packet
-	pac.Type = dataType
-	pac.Seq = bSeq
-	pac.Ver = 88
-	pac.Len = uint32(len(body))
-	pac.Data = body
-
-	log.Infof("client will send response message")
-	log.Infof("send response body to server:%s\n", string(body))
-	return SendByteStream(conn, pac.GetBytes())
-}
-
-func Uint32ToBytes(v uint32) []byte {
-	buf := make([]byte, 4)
-	buf[0] = byte(v >> 24)
-	buf[1] = byte(v >> 16)
-	buf[2] = byte(v >> 8)
-	buf[3] = byte(v)
-	return buf
-}
-
-func BytesToUint32(buf []byte) uint32 {
-	v := (uint32(buf[0])<<24 | uint32(buf[1])<<16 | uint32(buf[2])<<8 | uint32(buf[3]))
-	return v
-}
-
-func Uint8ToBytes(v uint8) []byte {
-	buf := make([]byte, 1)
-	buf[0] = byte(v)
-	return buf
-}
-
-func BytesToUint8(buf []byte) uint8 {
-	v := (uint8(buf[0]))
-	return v
-}
-
-// keepalive message
-func KeepAlive(conn *net.TCPConn) uint8 {
-	ticker := time.NewTicker(50 * time.Second)
-	for _ = range ticker.C {
-		err := SendKeepAliveData(conn, uint8(0))
-		if err != nil {
-			log.Infof("send keepalvie data fail:%v\r\n", err)
-			return uint8(CLIENTERROR)
-		}
-		log.Infof(conn.RemoteAddr().String(), "ping.")
-	}
-	return uint8(0)
-}
-
-func messgeProcess(conn *net.TCPConn) uint8 {
-	//var register RegisterInfo
-	var response ResponseInfo
-	//send register message
-	err := SendRegisterData(conn, uint8(1))
-	if err != nil {
-		log.Infof("send register data fail:%v\r\n", err)
-		// os.Exit(1)
-	}
-
-	var (
-		bType  []byte = make([]byte, 1)
-		bSeq   []byte = make([]byte, 4)
-		bVer   []byte = make([]byte, 1)
-		bLen   []byte = make([]byte, 4)
-		pacLen uint32
-	)
-	c := make(chan uint8, 1)
-	// send keepalive message every 5 minutes
 	go func() {
-		var result uint8
-		result = KeepAlive(conn)
-		if result == uint8(CLIENTERROR) {
-			log.Infof("quit message process result is:%d\n", result)
-			c <- uint8(CLIENTERROR)
-		}
-		c <- uint8(0)
+		agent.Run()
 	}()
-
-	/*client := &http.Client{
-		Transport: &http.Transport{
-			Dial: func(netw, addr string) (net.Conn, error) {
-				conn, err := net.DialTimeout(netw, addr, time.Second*5)
-				if err != nil {
-					return nil, err
-				}
-				conn.SetDeadline(time.Now().Add(time.Second * 2))
-				return conn, nil
-			},
-			ResponseHeaderTimeout: time.Second * 2,
-		},
-	}*/
-	// loop for receive message
-	for {
-		// read message type
-		//time.Sleep(5 * time.Second)
-		if n, err := io.ReadFull(conn, bType); err != nil && n != 1 {
-			log.Infof("Read message type failed: %v\r\n", err)
-			select {
-			case v := <-c:
-				if v == uint8(CLIENTERROR) {
-					log.Infof("quit read message process result is:%d\n", v)
-					return uint8(CLIENTERROR)
-				} else {
-					break
-				}
-			}
-			continue
-		}
-		messageType := BytesToUint8(bType)
-		log.Infof("clent receive message type %d", messageType)
-
-		switch messageType {
-		// receive register reponse
-		case 2:
-			if n, err := io.ReadFull(conn, bVer); err != nil && n != 1 {
-				log.Infof("Read register message ver failed: %v\r\n", err)
-				continue
-			}
-
-			if n, err := io.ReadFull(conn, bSeq); err != nil && n != 4 {
-				log.Infof("Read register message seq failed: %v\r\n", err)
-				continue
-			}
-
-			if n, err := io.ReadFull(conn, bLen); err != nil && n != 4 {
-				log.Infof("Read register message Len failed: %v\r\n", err)
-				continue
-			}
-			pacLen = BytesToUint32(bLen)
-			pacData := make([]byte, pacLen)
-			if n, err := io.ReadFull(conn, pacData); err != nil && n != int(pacLen) {
-				log.Infof("Read register pacData failed: %v\r\n", err)
-				continue
-			}
-
-			err = json.Unmarshal([]byte(pacData), &response)
-			if err != nil {
-				log.Infof("register json decode error: %v\r\n", err)
-				continue
-			}
-		//receive server request
-		case 3:
-			if n, err := io.ReadFull(conn, bVer); err != nil && n != 1 {
-				log.Infof("Read request message ver failed: %v\r\n", err)
-				continue
-			}
-
-			if n, err := io.ReadFull(conn, bSeq); err != nil && n != 4 {
-				log.Infof("Read request message seq failed: %v\r\n", err)
-				continue
-			}
-
-			if n, err := io.ReadFull(conn, bLen); err != nil && n != 4 {
-				log.Infof("Read request message Len failed: %v\r\n", err)
-				continue
-			}
-			pacLen = BytesToUint32(bLen)
-			pacData := make([]byte, pacLen)
-			if n, err := io.ReadFull(conn, pacData); err != nil && n != int(pacLen) {
-				log.Infof("Read request pacData failed: %v\r\n", err)
-				continue
-			}
-			// parse jason
-			uidinfo := gojson.Json(string(pacData)).Get("uid").Tostring()
-			log.Infof("uid info:%v", uidinfo)
-			cmdinfo := gojson.Json(string(pacData)).Get("cmd").Tostring()
-			log.Infof("cmd info:%v", cmdinfo)
-			request := gojson.Json(cmdinfo).Get("forward").Tostring()
-			log.Infof("request info:%v", request)
-			var responsebody []byte
-			if len(cmdinfo) != 0 {
-				log.Infof("enter cmd process branch\n")
-				requestbody := bytes.NewBuffer([]byte(request))
-
-				client := &http.Client{
-					Transport: &http.Transport{
-						Dial: func(netw, addr string) (net.Conn, error) {
-							conn, err := net.DialTimeout(netw, addr, time.Second*5)
-							if err != nil {
-								return nil, err
-							}
-							conn.SetDeadline(time.Now().Add(time.Second * 2))
-							return conn, nil
-						},
-						ResponseHeaderTimeout: time.Second * 2,
-					},
-				}
-
-				log.Infof("send http body:%v", cmdinfo)
-				if res, err := client.Post("http://127.0.0.1:9999/", "application/json;charset=utf-8", requestbody); err != nil {
-					log.Infof("http post request failed - %v\r\n", err)
-				} else {
-					result, err2 := ioutil.ReadAll(res.Body)
-					log.Infof("res body value is :%s\n", res.Body)
-					if err2 != nil {
-						log.Infof("http response read failed - %v\r\n", err2)
-					}
-					res.Body.Close()
-					log.Infof("post request result:%s\n", result)
-					responsebody = result
-					cmdHttpResp := CommandHttpResponse{
-						Status: 0,
-						Result: string(responsebody),
-						Descr:  "",
-					}
-
-					finalResp, _ := json.Marshal(cmdHttpResp)
-					log.Infof("post final response:%s\n", string(finalResp))
-					SendResponseData(conn, uint8(4), finalResp, BytesToUint32(bSeq))
-				}
-
-			}
-			/*
-				else{
-					fmt.Printf("do not find cmd jason info")
-				}*/
-		//invalid meessage
-		default:
-			log.Infof("invalid message type %d", messageType)
-		}
-	}
-	return uint8(0)
+	sig := <-c
+	agent.Stop()
 }
 
-type CommandHttpResponse struct {
-	Status uint8  `json:"status"`
-	Result string `json:"result"`
-	Descr  string `json:"descr"`
-}
-
-func StreamToByte(stream io.Reader) []byte {
-	buf := new(bytes.Buffer)
-	buf.ReadFrom(stream)
-	return buf.Bytes()
-}
-/*
-func setLogOutput(filepath string) {
-	log.SetFlags(log.Lshortfile | log.LstdFlags)
-	logfile, err := os.OpenFile(filepath, os.O_RDWR|os.O_CREATE|os.O_APPEND, os.ModePerm)
-	if err != nil {
-		log.Infof("%v\r\n", err)
-	}
-	log.SetOutput(logfile)
-}*/
-
-func getMac() (string, error) {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		log.Infof("get mac addres failed:%v\r\n", err)
-	}
-	var macAddr string
-	var mac string
-	for _, inter := range interfaces {
-		macAddr = inter.HardwareAddr.String()
-		if macAddr != "" {
-			mac = strings.Replace(macAddr, ":", "", -1)
-			log.Infof("mac address:%s", mac)
-		}
-	}
-	return mac, err
-}
-
-type ConfigStruct struct {
-	Address string `json:"address"`
-}
-
-var (
-	Config ConfigStruct
-)
-
-func LoadConfig(filename string) error {
-	r, err := os.Open(filename)
-	if err != nil {
-		return err
-	}
-	decoder := json.NewDecoder(r)
-	err = decoder.Decode(&Config)
-	if err != nil {
-		return err
-	}
-	return nil
-}
