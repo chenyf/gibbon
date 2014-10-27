@@ -49,3 +49,7 @@ func (header *Header) Deserialize(b []byte) error {
 	}
 	return nil
 }
+
+type RegisterMessage struct {
+}
+
