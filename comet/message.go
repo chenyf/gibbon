@@ -30,6 +30,7 @@ const (
 	MSG_REQUEST_REPLY  = uint8(4)
 	MSG_ECHO           = uint8(8)
 	MSG_ECHO_REPLY     = uint8(9)
+	MSG_COMMAND        = uint8(10)
 )
 
 // msg to byte

@@ -1,28 +1,24 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
+	//"bytes"
+	//"encoding/json"
 	"fmt"
-	"github.com/widuu/gojson"
-	"io"
-	"io/ioutil"
+	//"io"
+	//"io/ioutil"
 	log "github.com/cihub/seelog"
 	"net"
-	"net/http"
+	//"net/http"
 	"os"
 	"strings"
 	"time"
-	"github.com/chenyf/gibbon/util"
-	"github.com/chenyf/gibbon/conf"
+	//"sync"
+	"syscall"
+	"os/signal"
+	"github.com/chenyf/gibbon/comet"
 )
 
-type MsgHandler func(*net.TCPConn, *Header, []byte) int
-type Pack struct {
-	msg    *Message
-	client *Client
-	reply  chan *Message
-}
+type MsgHandler func(*net.TCPConn, *comet.Header, []byte) int
 
 type Agent struct {
 	done	chan bool
@@ -34,23 +30,23 @@ func NewAgent() *Agent {
 		done: make(chan bool),
 		funcMap: make(map[uint8]MsgHandler),
 	}
-	agent.funcMap[MSG_REGISTER_REPLY] = handlerRegisterReply
-	agent.funcMap[MSG_COMMAND]        = handlerCommnd
+	agent.funcMap[comet.MSG_REGISTER_REPLY] = handleRegisterReply
+	agent.funcMap[comet.MSG_COMMAND]        = handleCommand
 	return agent
 }
 
 func (this *Agent)Run() {
 	var c Conn
-	addSlice = strings.Split(Config.Address)
+	addSlice := strings.Split(Config.Address, ":")
 	for {
 		select {
-			case this->done:
+			case <- this.done:
 				break
 			default:
 		}
 		if c.conn == nil {
 			if ok := c.Make(addSlice[0]); !ok {
-				time.Sleep(1*time.Seconds)
+				time.Sleep(1*time.Second)
 				continue
 			}
 			c.Start()
@@ -75,14 +71,14 @@ func (this *Agent)Run() {
 }
 
 func (this *Agent)Stop() {
-	this->done <- true
+	this.done <- true
 }
 
-func handleRegisterReply() {
+func handleRegisterReply(*net.TCPConn, *comet.Header, []byte) int {
 	return 0
 }
 
-func handleCommand() {
+func handleCommand(*net.TCPConn, *comet.Header, []byte) int {
 	return 0
 }
 
@@ -99,18 +95,26 @@ type CommandHttpResponse struct {
 	Descr  string `json:"descr"`
 }
 
+type Pack struct {
+	msg    *comet.Message
+	reply  chan *comet.Message
+}
 type Conn struct {
 	conn *net.TCPConn
+	outMsgs  chan *Pack
+	done     chan bool
 	readFlag int
 	nRead    int
 	headBuf	 []byte
 	dataBuf  []byte
-	header   Header
+	header   comet.Header
 }
 
 func NewConn() *Conn {
 	return &Conn{
-		headBuf = make([]byte, HEADER_SIZE)
+		headBuf : make([]byte, comet.HEADER_SIZE),
+		outMsgs:    make(chan *Pack, 100),
+		done:       make(chan bool),
 	}
 }
 
@@ -122,7 +126,7 @@ func (this *Conn)Make(service string) bool {
 		return false
 	}
 
-	conn, err = net.DialTCP("tcp", nil, tcpAddr)
+	conn, err := net.DialTCP("tcp", nil, tcpAddr)
 	if err != nil {
 		return false
 	}
@@ -131,47 +135,48 @@ func (this *Conn)Make(service string) bool {
 }
 
 func (this *Conn)Start() {
-	macAddr, err := util.GetMac()
+	macAddr, _ := GetMac()
 	b := []byte(macAddr)
-	this.SendMessage(MSG_REGISTER, b, nil)
+	this.SendMessage(comet.MSG_REGISTER, b, nil)
 	go func() {
         timer := time.NewTicker(60*time.Second)
 		heartbeat := make([]byte, 1)
 		heartbeat[0] = 0
 		for {
 			select {
-			case <-this->done:
+			case <-this.done:
 				return
-			case msg := this->outMsgs:
+			case pack := <-this.outMsgs:
                 //seqid := pack.client.nextSeq
 				//pack.msg.Header.Seq = seqid
 				b, _ := pack.msg.Header.Serialize()
-				conn.Write(b)
-				conn.Write(pack.msg.Data)
-				log.Infof("%s: send msg: (%d) (%s)", client.devId, pack.msg.Header.Type, pack.msg.Data)
+				this.conn.Write(b)
+				this.conn.Write(pack.msg.Data)
+				log.Infof("send msg: (%d) (%s)", pack.msg.Header.Type, pack.msg.Data)
 				//pack.client.nextSeq += 1
-				time.Sleep(0.1 * time.Second)
+				time.Sleep(1 * time.Second)
 			case <- timer.C:
-				conn.Write(heartbeat)
+				this.conn.Write(heartbeat)
 			}
 		}
 	}()
 }
 
 func (this *Conn)Read() int {
+	var n int
 	if this.readFlag == 0 {
-		n = myread(this.conn, this.headBuf[this.nRead:])
+		n = MyRead(this.conn, this.headBuf[this.nRead:])
 		if n < 0 {
 			return -1
 		} else if n == 0 {
 			return 1
 		}
 		this.nRead += n
-		if uint32(this.nRead) < HEADER_SIZE {
+		if uint32(this.nRead) < comet.HEADER_SIZE {
 			return 1
 		}
 
-		if err := this.header.Deserialize(this.headBuf[0:HEADER_SIZE]); err != nil {
+		if err := this.header.Deserialize(this.headBuf[0:comet.HEADER_SIZE]); err != nil {
 			return -1
 		}
 
@@ -183,7 +188,7 @@ func (this *Conn)Read() int {
 		this.dataBuf = make([]byte, this.header.Len)
 		this.nRead = 0
 	}
-	n = myread(this.conn, this.dataBuf[this.nRead:])
+	n = MyRead(this.conn, this.dataBuf[this.nRead:])
 	if n < 0 {
 		return -1
 	} else if n == 0 {
@@ -208,20 +213,19 @@ func (this *Conn)Close() {
 	this.BufReset()
 }
 
-func (this *Conn)SendMessage(msgType uint8, body []byte, reply chan *Message) {
-    header := Header{
+func (this *Conn)SendMessage(msgType uint8, body []byte, reply chan *comet.Message) {
+    header := comet.Header{
 		Type: msgType,
 		Ver:  0,
 		Seq:  0,
 		Len:  uint32(len(body)),
 	}
-	msg := &Message{
+	msg := &comet.Message{
 		Header: header,
 		Data:   body,
 	}
 	pack := &Pack{
 		msg:    msg,
-		client: client,
 		reply:  reply,
 	}
 	this.outMsgs <- pack
@@ -241,7 +245,7 @@ func main() {
 	}
 	log.ReplaceLogger(logger)
 
-	wg := &sync.WaitGroup{}
+	//wg := &sync.WaitGroup{}
 	agent := NewAgent()
 	c := make(chan os.Signal, 1)
     signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
@@ -250,6 +254,7 @@ func main() {
 		agent.Run()
 	}()
 	sig := <-c
+	log.Infof("Received signal '%v', exiting\n", sig)
 	agent.Stop()
 }
 

@@ -1,4 +1,11 @@
-package util
+package main
+
+import (
+	log "github.com/cihub/seelog"
+	"net"
+	"strings"
+	"io"
+)
 
 func GetMac() (string, error) {
 	interfaces, err := net.Interfaces()
@@ -17,7 +24,7 @@ func GetMac() (string, error) {
 	return mac, err
 }
 
-func myread(conn *net.TCPConn, buf []byte) int {
+func MyRead(conn *net.TCPConn, buf []byte) int {
 	n, err := io.ReadFull(conn, buf)
 	if err != nil {
 		if e, ok := err.(*net.OpError); ok && e.Timeout() {
