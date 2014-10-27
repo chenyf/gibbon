@@ -3,6 +3,9 @@ all: clean gibbon tarball
 gibbon:
 	go build
 
+#test:
+#	cd test; go build
+
 tarball: gibbon
 	mkdir -p output
 	rm -rf output/*

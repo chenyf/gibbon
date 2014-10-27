@@ -16,15 +16,16 @@ import (
 )
 
 type ApiResponse struct {
-	ErrNo  int    `json:"errno"`
-	ErrMsg string `json:"errmsg"`
+	ErrNo  int         `json:"errno"`
+	ErrMsg string      `json:"errmsg"`
+	Data   interface{} `json:"data,omitempty"`
 	//ErrMsg string      `json:"errmsg,omitempty"`
-	Data interface{} `json:"data"`
-	//Data   interface{} `json:"data,omitempty"`
+	//Data interface{} `json:"data"`
 }
 
 const (
-	ERR_NOERROR = 10000
+	ERR_NOERROR     = 10000
+	ERR_CMD_TIMEOUT = 20000
 )
 
 type CommandRequest struct {
@@ -46,6 +47,15 @@ type ResponseRouterList struct {
 	Status int          `json:"status"`
 	Descr  string       `json:"descr"`
 	List   []RouterInfo `json:"list"`
+}
+
+func Error(w rest.ResponseWriter, errNo int, errMsg string, code int) {
+	resp := ApiResponse{
+		ErrNo:  errNo,
+		ErrMsg: errMsg,
+	}
+	b, _ := json.Marshal(resp)
+	http.Error(w.(http.ResponseWriter), string(b), code)
 }
 
 func checkAuthz(uid string, devid string) bool {
@@ -287,6 +297,48 @@ func getDevice(w rest.ResponseWriter, r *rest.Request) {
 	w.WriteJson(resp)
 }
 
+func controlDevice(w rest.ResponseWriter, r *rest.Request) {
+	type ControlParam struct {
+		Token  string `json:"token"`
+		Worker string `json:"worker"`
+		Cmd    string `json:"cmd"`
+	}
+
+	devId := r.PathParam("devid")
+	if !comet.DevMap.Check(devId) {
+		rest.NotFound(w, r)
+		return
+	}
+	client := comet.DevMap.Get(devId).(*comet.Client)
+	param := ControlParam{}
+	err := r.DecodeJsonPayload(&param)
+	if err != nil {
+		log.Warnf("Error decode param: %s", err.Error())
+		//Error(w, ERR_BAD_REQUEST, "Bad request", 400)
+		rest.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cmdRequest := CommandRequest{
+		Cmd: param.Cmd,
+	}
+
+	resp := ApiResponse{}
+
+	bCmd, _ := json.Marshal(cmdRequest)
+	reply := make(chan *comet.Message)
+	client.SendMessage(comet.MSG_REQUEST, bCmd, reply)
+	select {
+	case msg := <-reply:
+		resp.ErrNo = ERR_NOERROR
+		resp.Data = msg.Data
+	case <-time.After(10 * time.Second):
+		resp.ErrNo = ERR_CMD_TIMEOUT
+		resp.ErrMsg = fmt.Sprintf("recv response timeout [%s]", client.DevId)
+	}
+	w.WriteJson(resp)
+}
+
 func StartHttp(addr string) {
 	log.Infof("Starting HTTP server on %s", addr)
 
@@ -294,10 +346,9 @@ func StartHttp(addr string) {
 	err := handler.SetRoutes(
 		&rest.Route{"GET", "/devices", getDevices},
 		&rest.Route{"GET", "/devices/:devid", getDevice},
-		&rest.Route{"GET", "/server", getGibbon},
+		&rest.Route{"POST", "/devices/:devid", controlDevice},
+		&rest.Route{"GET", "/servers", getGibbon},
 		&rest.Route{"GET", "/status", getStatus},
-		//		&rest.Route{"POST", "/countries", PostCountry},
-		//		&rest.Route{"DELETE", "/countries/:code", DeleteCountry},
 	)
 	if err != nil {
 		log.Criticalf("http SetRoutes: ", err)
