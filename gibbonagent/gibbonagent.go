@@ -18,7 +18,7 @@ import (
 	"github.com/chenyf/gibbon/comet"
 )
 
-type MsgHandler func(*net.TCPConn, *comet.Header, []byte) int
+type MsgHandler func(*Conn, *comet.Header, []byte) int
 
 type Agent struct {
 	done	chan bool
@@ -31,7 +31,7 @@ func NewAgent() *Agent {
 		funcMap: make(map[uint8]MsgHandler),
 	}
 	agent.funcMap[comet.MSG_REGISTER_REPLY] = handleRegisterReply
-	agent.funcMap[comet.MSG_COMMAND]        = handleCommand
+	agent.funcMap[comet.MSG_ROUTER_COMMAND] = handleRouterCommand
 	return agent
 }
 
@@ -62,7 +62,7 @@ func (this *Agent)Run() {
 		}
 		// ok
 		if handler, ok := this.funcMap[c.header.Type]; ok {
-			handler(c.conn, &c.header, c.dataBuf)
+			handler(&c, &c.header, c.dataBuf)
 		} else {
 			log.Warnf("unkonw")
 		}
@@ -74,11 +74,47 @@ func (this *Agent)Stop() {
 	this.done <- true
 }
 
-func handleRegisterReply(*net.TCPConn, *comet.Header, []byte) int {
+func sendReply(c *Conn, msgType uint8, v interface{}) {
+	b, _ := json.Marshal(v)
+	c.SendMessage(msgType, b, nil)
+}
+
+func handleRegisterReply(*Conn, *comet.Header, body []byte) int {
 	return 0
 }
 
-func handleCommand(*net.TCPConn, *comet.Header, []byte) int {
+func handleRouterCommand(*Conn, *comet.Header, body []byte) int {
+	var msg comet.RouterCommandMessage
+	var reply comet.RouterCommandReplyMessage
+
+	if err := json.Unmarshal(body, &msg); err != nil {
+		reply.Result = 1
+		sendReply(c, comet.MSG_ROUTER_COMMAND_REPLY, &reply)
+		return 0
+	}
+	client := &http.Client{
+		Transport: &http.Transport{
+			Dial: func(netw, addr string) (net.Conn, error) {
+				conn, err := net.DialTimeout(netw, addr, time.Second*5)
+				if err != nil {
+					return nil, err
+				}
+				conn.SetDeadline(time.Now().Add(time.Second * 2))
+				return conn, nil
+			},
+			ResponseHeaderTimeout: time.Second * 2,
+		},
+	}
+
+	response, err := client.Post(
+		"http://127.0.0.1:9999/",
+		"application/json;charset=utf-8",
+		requestbody); err != nil {
+	}
+	result, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+	}
+	response.Body.Close()
 	return 0
 }
 

@@ -28,9 +28,8 @@ const (
 	MSG_REGISTER_REPLY = uint8(2)
 	MSG_REQUEST        = uint8(3)
 	MSG_REQUEST_REPLY  = uint8(4)
-	MSG_ECHO           = uint8(8)
-	MSG_ECHO_REPLY     = uint8(9)
-	MSG_COMMAND        = uint8(10)
+	MSG_ROUTER_COMMAND        = uint8(1000)
+	MSG_ROUTER_COMMAND_REPLY  = uint8(1001)
 )
 
 // msg to byte
@@ -52,5 +51,14 @@ func (header *Header) Deserialize(b []byte) error {
 }
 
 type RegisterMessage struct {
+}
+
+type RegisterReplyMessage struct {
+}
+
+type RouterCommandMessage struct {
+}
+
+type RouterCommandReplyMessage struct {
 }
 
