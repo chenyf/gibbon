@@ -95,3 +95,4 @@ func main() {
 	go api.StartHttp(conf.Config.Web)
 	waitGroup.Wait()
 }
+
