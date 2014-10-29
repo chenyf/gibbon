@@ -15,6 +15,26 @@ import (
 	"github.com/chenyf/gibbon/devcenter"
 )
 
+const (
+	STATUS_OK                = 0
+	STATUS_OTHER_ERR         = -1
+	STATUS_ROUTER_NOT_LOGGIN = -2
+	STATUS_TASK_NOT_EXIST    = -3
+	STATUS_TASK_EXIST        = -4
+	STATUS_INVALID_PARAM     = -5
+	STATUS_ROUTER_OFFLINE    = -6
+)
+
+type CommandRequest struct {
+	Uid string `json:"uid"`
+	Cmd string `json:"cmd"`
+}
+
+type CommandResponse struct {
+	Status int    `json:"status"`
+	Error  string `json:"error"`
+}
+
 func sign(path string, query map[string]string) []byte {
 	uid := query["uid"]
 	rid := query["rid"]
@@ -67,26 +87,30 @@ func postRouterCommand(w http.ResponseWriter, r *http.Request) {
 		bCmd       []byte
 		reply      chan *comet.Message
 	)
-	response.Status = 1
+	response.Status = STATUS_OK
 	if r.Method != "POST" {
-		response.Error = "must using 'POST' method\n"
+		response.Status = STATUS_OTHER_ERR
+		response.Error = "must use 'POST' method\n"
 		goto resp
 	}
 	r.ParseForm()
 	rid = r.FormValue("rid")
 	if rid == "" {
+		response.Status = STATUS_INVALID_PARAM
 		response.Error = "missing 'rid'"
 		goto resp
 	}
 
 	uid = r.FormValue("uid")
 	if uid == "" {
+		response.Status = STATUS_INVALID_PARAM
 		response.Error = "missing 'uid'"
 		goto resp
 	}
 
 	if !checkAuthz(uid, rid) {
 		log.Warnf("auth failed. uid: %s, rid: %s", uid, rid)
+		response.Status = STATUS_OTHER_ERR
 		response.Error = "authorization failed"
 		goto resp
 	}
@@ -121,11 +145,13 @@ func postRouterCommand(w http.ResponseWriter, r *http.Request) {
 	*/
 
 	if r.Body == nil {
+		response.Status = STATUS_INVALID_PARAM
 		response.Error = "missing POST data"
 		goto resp
 	}
 
 	if !comet.DevMap.Check(rid) {
+		response.Status = STATUS_ROUTER_OFFLINE
 		response.Error = fmt.Sprintf("device (%s) offline", rid)
 		goto resp
 	}
@@ -134,6 +160,7 @@ func postRouterCommand(w http.ResponseWriter, r *http.Request) {
 	body, err = ioutil.ReadAll(r.Body)
 	r.Body.Close()
 	if err != nil {
+		response.Status = STATUS_INVALID_PARAM
 		response.Error = "invalid POST body"
 		goto resp
 	}
@@ -150,6 +177,7 @@ func postRouterCommand(w http.ResponseWriter, r *http.Request) {
 	case msg := <-reply:
 		w.Write(msg.Data)
 	case <-time.After(10 * time.Second):
+		response.Status = STATUS_OTHER_ERR
 		response.Error = fmt.Sprintf("recv response timeout [%s]", client.DevId)
 		goto resp
 	}
@@ -184,7 +212,7 @@ func getRouterList(w http.ResponseWriter, r *http.Request) {
 		err      error
 	)
 
-	response.Status = -1
+	response.Status = STATUS_OTHER_ERR
 	if r.Method != "GET" {
 		response.Descr = "must using 'GET' method\n"
 		goto resp

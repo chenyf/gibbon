@@ -177,8 +177,11 @@ func (this *Server) Run(listener *net.TCPListener) {
 
 	//go this.dealSpamConn()
 	log.Infof("Starting comet server on: %s\n", listener.Addr().String())
-	log.Infof("Comet server settings: readtimeout [%d], accepttimeout [%d], heartbeattimeout [%d]\n",
-		this.readTimeout, this.acceptTimeout, this.heartbeatTimeout)
+	log.Infof("Comet server settings: readtimeout [%dms], accepttimeout [%dms], heartbeattimeout [%dms]\n",
+		this.readTimeout/time.Millisecond,
+		this.acceptTimeout/time.Millisecond,
+		this.heartbeatTimeout/time.Millisecond)
+
 	for {
 		select {
 		case <-this.exitCh:

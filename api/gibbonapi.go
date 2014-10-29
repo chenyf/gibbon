@@ -26,16 +26,6 @@ const (
 	ERR_CMD_TIMEOUT = 20000
 )
 
-type CommandRequest struct {
-	Uid string `json:"uid"`
-	Cmd string `json:"cmd"`
-}
-
-type CommandResponse struct {
-	Status int    `json:"status"`
-	Error  string `json:"error"`
-}
-
 func getStatus(w rest.ResponseWriter, r *rest.Request) {
 	resp := ApiResponse{
 		ErrNo: ERR_NOERROR,
