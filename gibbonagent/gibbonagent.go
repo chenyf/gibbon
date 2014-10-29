@@ -47,7 +47,7 @@ func (this *Agent)Run() {
 		}
 		if c.conn == nil {
 			if ok := c.Connect(addSlice[0]); !ok {
-				time.Sleep(1*time.Second)
+				time.Sleep(5*time.Second)
 				continue
 			}
 			log.Infof("connect ok")
@@ -202,7 +202,7 @@ func (this *Conn)Start() {
 	b := []byte(macAddr)
 	this.SendMessage(comet.MSG_REGISTER, 0, b, nil)
 	go func() {
-        timer := time.NewTicker(60*time.Second)
+        timer := time.NewTicker(110*time.Second)
 		h := comet.Header{}
 		h.Type = comet.MSG_HEARTBEAT
 		heartbeat, _ := h.Serialize()
