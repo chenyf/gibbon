@@ -23,11 +23,13 @@ const (
 )
 
 const (
-	MSG_HEARTBEAT      = uint8(0)
-	MSG_REGISTER       = uint8(1)
-	MSG_REGISTER_REPLY = uint8(2)
-	MSG_REQUEST        = uint8(3)
-	MSG_REQUEST_REPLY  = uint8(4)
+	MSG_HEARTBEAT            = uint8(0)
+	MSG_REGISTER             = uint8(1)
+	MSG_REGISTER_REPLY       = uint8(2)
+	MSG_REQUEST              = uint8(3)
+	MSG_REQUEST_REPLY        = uint8(4)
+	MSG_ROUTER_COMMAND       = uint8(10)
+	MSG_ROUTER_COMMAND_REPLY = uint8(11)
 )
 
 // msg to byte
@@ -46,4 +48,23 @@ func (header *Header) Deserialize(b []byte) error {
 		return err
 	}
 	return nil
+}
+
+type RegisterMessage struct {
+}
+
+type RegisterReplyMessage struct {
+}
+
+type RouterCommandMessage struct {
+	Uid string `json:"uid"`
+	Cmd struct {
+		Forward string `json:"forward"`
+	} `json:"cmd"`
+}
+
+type RouterCommandReplyMessage struct {
+	Status int    `json:"status"`
+	Descr  string `json:"descr"`
+	Result string `json:"result"`
 }

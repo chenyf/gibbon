@@ -1,15 +1,19 @@
-all: clean gibbon tarball
-
-gibbon:
-	go build
+all: clean init gibbon tarball
 
 agent:
 	cd test; CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build
 
-tarball: gibbon
+init:
 	mkdir -p output
 	rm -rf output/*
-	cp gibbon output
+
+gibbon:
+	cd gibbond && go build -o ../output/gibbond 
+
+#gibbonapi:
+#	cd gibbonapi && go build
+
+tarball: init gibbon
 	cp control.sh output
 	mkdir -p output/etc
 	cp etc/conf_product.json output/etc/conf.json

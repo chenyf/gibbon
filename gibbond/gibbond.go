@@ -83,9 +83,9 @@ func main() {
 	go func() {
 		cometServer.Run(listener)
 	}()
+
 	waitGroup.Add(1)
-
 	go api.StartHttp(conf.Config.Web)
-
 	waitGroup.Wait()
 }
+
