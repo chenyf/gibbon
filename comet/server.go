@@ -266,6 +266,14 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 		return
 	}
 
+	var (
+		readHeader = true
+		bytesRead  = 0
+		data       []byte
+		header     Header
+		startTime  time.Time
+	)
+
 	for {
 		/*
 			select {
@@ -276,49 +284,62 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 			}
 		*/
 
-		var (
-			data []byte = nil
-		)
-
 		now := time.Now()
 		if now.After(client.LastAlive.Add(this.heartbeatTimeout)) {
 			log.Warnf("Device [%s] heartbeat timeout", client.DevId)
 			break
 		}
 
-		//conn.SetReadDeadline(time.Now().Add(this.readTimeout))
 		conn.SetReadDeadline(now.Add(10 * time.Second))
-		buf := make([]byte, HEADER_SIZE)
-		n, err := io.ReadFull(conn, buf)
-		if err != nil {
-			if e, ok := err.(*net.OpError); ok && e.Timeout() {
-				//log.Printf("read timeout, %d", n)
-				continue
-			}
-			log.Errorf("readfull failed (%v)", err)
-			break
-		}
-
-		var header Header
-		if err := header.Deserialize(buf[0:n]); err != nil {
-			log.Errorf("Deserialize header failed: %s", err.Error())
-			break
-		}
-
-		if header.Len > MAX_BODY_LEN {
-			log.Warnf("Msg body too big: %d", header.Len)
-			break
-		}
-
-		if header.Len > 0 {
-			data = make([]byte, header.Len)
-			if _, err := io.ReadFull(conn, data); err != nil {
+		if readHeader {
+			buf := make([]byte, HEADER_SIZE)
+			n, err := io.ReadFull(conn, buf)
+			if err != nil {
 				if e, ok := err.(*net.OpError); ok && e.Timeout() {
+					//log.Printf("read timeout, %d", n)
 					continue
 				}
-				log.Errorf("read from client failed: (%v)", err)
+				log.Errorf("readfull failed (%v)", err)
 				break
 			}
+			if err := header.Deserialize(buf[0:n]); err != nil {
+				log.Errorf("Deserialize header failed: %s", err.Error())
+				break
+			}
+
+			if header.Len > MAX_BODY_LEN {
+				log.Warnf("Msg body too big: %d", header.Len)
+				break
+			}
+
+			if header.Len > 0 {
+				data = make([]byte, header.Len)
+				readHeader = false
+				bytesRead = 0
+				startTime = time.Now()
+				continue
+			}
+		} else {
+			n, err := conn.Read(data[bytesRead:])
+			if err != nil {
+				if e, ok := err.(*net.OpError); ok && e.Timeout() {
+					if now.After(startTime.Add(this.readTimeout)) {
+						log.Infof("%p: read packet data timeout", conn)
+						break
+					}
+				} else {
+					log.Infof("%p: read from client failed: (%v)", conn, err)
+					break
+				}
+			}
+			if n > 0 {
+				bytesRead += n
+			}
+			if uint32(bytesRead) < header.Len {
+				continue
+			}
+			readHeader = true
+			log.Debugf("%s: body (%s)", conn.RemoteAddr().String(), data)
 		}
 
 		handler, ok := this.funcMap[header.Type]
