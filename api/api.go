@@ -36,15 +36,6 @@ type CommandResponse struct {
 	Error  string `json:"error"`
 }
 
-func Error(w rest.ResponseWriter, errNo int, errMsg string, code int) {
-	resp := ApiResponse{
-		ErrNo:  errNo,
-		ErrMsg: errMsg,
-	}
-	b, _ := json.Marshal(resp)
-	http.Error(w.(http.ResponseWriter), string(b), code)
-}
-
 func getStatus(w rest.ResponseWriter, r *rest.Request) {
 	resp := ApiResponse{
 		ErrNo: ERR_NOERROR,

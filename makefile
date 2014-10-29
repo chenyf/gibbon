@@ -3,8 +3,8 @@ all: clean gibbon tarball
 gibbon:
 	go build
 
-#test:
-#	cd test; go build
+agent:
+	cd test; CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build
 
 tarball: gibbon
 	mkdir -p output
