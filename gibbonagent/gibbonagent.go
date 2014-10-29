@@ -203,8 +203,9 @@ func (this *Conn)Start() {
 	this.SendMessage(comet.MSG_REGISTER, 0, b, nil)
 	go func() {
         timer := time.NewTicker(60*time.Second)
-		heartbeat := make([]byte, 1)
-		heartbeat[0] = 0
+		h := comet.Header{}
+		h.Type = comet.MSG_HEARTBEAT
+		heartbeat, _ := h.Serialize()
 		for {
 			select {
 			case <-this.done:
