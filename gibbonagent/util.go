@@ -11,6 +11,7 @@ func GetMac() (string, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		log.Infof("get mac addres failed:%v\r\n", err)
+		return "", err
 	}
 	var macAddr string
 	var mac string
@@ -21,7 +22,7 @@ func GetMac() (string, error) {
 			log.Infof("mac address:%s", mac)
 		}
 	}
-	return mac, err
+	return mac, nil
 }
 
 func MyRead(conn *net.TCPConn, buf []byte) int {

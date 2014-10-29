@@ -1,18 +1,18 @@
 package main
 
 import (
-	//"bytes"
-	//"encoding/json"
+	"bytes"
+	"encoding/json"
 	"fmt"
 	//"io"
-	//"io/ioutil"
+	"io/ioutil"
 	log "github.com/cihub/seelog"
 	"net"
-	//"net/http"
+	"net/http"
 	"os"
 	"strings"
 	"time"
-	//"sync"
+	"sync"
 	"syscall"
 	"os/signal"
 	"github.com/chenyf/gibbon/comet"
@@ -36,25 +36,29 @@ func NewAgent() *Agent {
 }
 
 func (this *Agent)Run() {
-	var c Conn
-	addSlice := strings.Split(Config.Address, ":")
+	var c *Conn = NewConn()
+	addSlice := strings.Split(Config.Address, ";")
 	for {
 		select {
 			case <- this.done:
-				break
+				log.Infof("agent quit")
+				return
 			default:
 		}
 		if c.conn == nil {
-			if ok := c.Make(addSlice[0]); !ok {
+			if ok := c.Connect(addSlice[0]); !ok {
 				time.Sleep(1*time.Second)
 				continue
 			}
+			log.Infof("connect ok")
 			c.Start()
 		}
+		c.conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 		n := c.Read()
 		if n < 0 {
 		// failed
 			c.Close()
+			c = NewConn()
 			continue
 		} else if n > 0 {
 		// need more data
@@ -62,34 +66,46 @@ func (this *Agent)Run() {
 		}
 		// ok
 		if handler, ok := this.funcMap[c.header.Type]; ok {
-			handler(&c, &c.header, c.dataBuf)
+			ret := handler(c, &c.header, c.dataBuf)
+			if ret != 0 {
+				c.Close()
+				c = NewConn()
+				continue
+			}
 		} else {
-			log.Warnf("unkonw")
+			log.Warnf("unknown message type %d", c.header.Type)
 		}
 		c.BufReset()
 	}
 }
 
 func (this *Agent)Stop() {
-	this.done <- true
+	close(this.done)
 }
 
-func sendReply(c *Conn, msgType uint8, v interface{}) {
+func sendReply(c *Conn, msgType uint8, seq uint32, v interface{}) {
 	b, _ := json.Marshal(v)
-	c.SendMessage(msgType, b, nil)
+	c.SendMessage(msgType, seq, b, nil)
 }
 
-func handleRegisterReply(*Conn, *comet.Header, body []byte) int {
+func handleRegisterReply(c *Conn, header *comet.Header, body []byte) int {
 	return 0
 }
 
-func handleRouterCommand(*Conn, *comet.Header, body []byte) int {
+func handleRouterCommand(c *Conn, header *comet.Header, body []byte) int {
 	var msg comet.RouterCommandMessage
 	var reply comet.RouterCommandReplyMessage
 
 	if err := json.Unmarshal(body, &msg); err != nil {
-		reply.Result = 1
-		sendReply(c, comet.MSG_ROUTER_COMMAND_REPLY, &reply)
+		reply.Status = 2000
+		reply.Descr = "Request body is not JSON"
+		sendReply(c, comet.MSG_ROUTER_COMMAND_REPLY, header.Seq, &reply)
+		return 0
+	}
+	if msg.Cmd.Forward == "" {
+		reply.Status = 2001
+		reply.Descr = "'forward' is empty"
+		sendReply(c, comet.MSG_ROUTER_COMMAND_REPLY, header.Seq, &reply)
 		return 0
 	}
 	client := &http.Client{
@@ -106,15 +122,27 @@ func handleRouterCommand(*Conn, *comet.Header, body []byte) int {
 		},
 	}
 
-	response, err := client.Post(
-		"http://127.0.0.1:9999/",
+	response, err := client.Post("http://127.0.0.1:9999/",
 		"application/json;charset=utf-8",
-		requestbody); err != nil {
+		bytes.NewBuffer([]byte(msg.Cmd.Forward)))
+	if err != nil {
+		reply.Status = 2002
+		reply.Descr = "Talk with local service failed"
+		sendReply(c, comet.MSG_ROUTER_COMMAND_REPLY, header.Seq, &reply)
+		return 0
 	}
 	result, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-	}
 	response.Body.Close()
+	if err != nil {
+		reply.Status = 2003
+		reply.Descr = "Local service response failed"
+		sendReply(c, comet.MSG_ROUTER_COMMAND_REPLY, header.Seq, &reply)
+		return 0
+	}
+	reply.Status = 0
+	reply.Descr = "OK"
+	reply.Result = string(result)
+	sendReply(c, comet.MSG_ROUTER_COMMAND_REPLY, header.Seq, &reply)
 	return 0
 }
 
@@ -125,20 +153,14 @@ type Serverslice struct {
 	Servers []Server
 }
 
-type CommandHttpResponse struct {
-	Status uint8  `json:"status"`
-	Result string `json:"result"`
-	Descr  string `json:"descr"`
-}
-
 type Pack struct {
 	msg    *comet.Message
 	reply  chan *comet.Message
 }
 type Conn struct {
-	conn *net.TCPConn
-	outMsgs  chan *Pack
+	conn     *net.TCPConn
 	done     chan bool
+	outMsgs  chan *Pack
 	readFlag int
 	nRead    int
 	headBuf	 []byte
@@ -148,14 +170,17 @@ type Conn struct {
 
 func NewConn() *Conn {
 	return &Conn{
-		headBuf : make([]byte, comet.HEADER_SIZE),
-		outMsgs:    make(chan *Pack, 100),
-		done:       make(chan bool),
+		conn     : nil,
+		done     : make(chan bool),
+		outMsgs  : make(chan *Pack, 100),
+		readFlag : 0,
+		nRead    : 0,
+		headBuf  : make([]byte, comet.HEADER_SIZE),
 	}
 }
 
-func (this *Conn)Make(service string) bool {
-	log.Infof("try to connect server address :%v\n", service)
+func (this *Conn)Connect(service string) bool {
+	log.Infof("try to connect server address: %v\n", service)
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", service)
 	if err != nil {
 		log.Infof("resolve tcp address fail:%v\n", err)
@@ -164,16 +189,18 @@ func (this *Conn)Make(service string) bool {
 
 	conn, err := net.DialTCP("tcp", nil, tcpAddr)
 	if err != nil {
+		log.Infof("connect failed, (%s)", err)
 		return false
 	}
 	conn.SetNoDelay(true)
+	this.conn = conn
 	return true
 }
 
 func (this *Conn)Start() {
 	macAddr, _ := GetMac()
 	b := []byte(macAddr)
-	this.SendMessage(comet.MSG_REGISTER, b, nil)
+	this.SendMessage(comet.MSG_REGISTER, 0, b, nil)
 	go func() {
         timer := time.NewTicker(60*time.Second)
 		heartbeat := make([]byte, 1)
@@ -249,11 +276,11 @@ func (this *Conn)Close() {
 	this.BufReset()
 }
 
-func (this *Conn)SendMessage(msgType uint8, body []byte, reply chan *comet.Message) {
+func (this *Conn)SendMessage(msgType uint8, seq uint32, body []byte, reply chan *comet.Message) {
     header := comet.Header{
 		Type: msgType,
 		Ver:  0,
-		Seq:  0,
+		Seq:  seq,
 		Len:  uint32(len(body)),
 	}
 	msg := &comet.Message{
@@ -268,13 +295,15 @@ func (this *Conn)SendMessage(msgType uint8, body []byte, reply chan *comet.Messa
 }
 
 func main() {
-	err := LoadConfig("/system/etc/conf.json")
+	//err := LoadConfig("/system/etc/conf.json")
+	err := LoadConfig("./conf.json")
 	if err != nil {
 		fmt.Printf("LoadConfig failed: (%s)", err)
 		os.Exit(1)
 	}
 
-	logger, err := log.LoggerFromConfigAsFile("/system/etc/log.xml")
+	//logger, err := log.LoggerFromConfigAsFile("/system/etc/log.xml")
+	logger, err := log.LoggerFromConfigAsFile("./log.xml")
 	if err != nil {
 		fmt.Printf("Load log config failed: (%s)\n", err)
 		os.Exit(1)
@@ -286,11 +315,16 @@ func main() {
 	c := make(chan os.Signal, 1)
     signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 
+	wg := sync.WaitGroup{}
+	wg.Add(1)
 	go func() {
 		agent.Run()
+		log.Infof("agent quited")
+		wg.Done()
 	}()
 	sig := <-c
 	log.Infof("Received signal '%v', exiting\n", sig)
 	agent.Stop()
+	wg.Wait()
 }
 
