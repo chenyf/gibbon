@@ -37,7 +37,7 @@ func sign(path string, query map[string]string) []byte {
 }
 
 func checkAuthz(uid string, devid string) bool {
-	log.Tracef("checkAuthz")
+	//log.Tracef("checkAuthz")
 
 	devices, err := devcenter.GetDevices(uid, devcenter.DEV_ROUTER)
 	if err != nil {
