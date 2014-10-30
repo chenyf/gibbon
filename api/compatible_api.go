@@ -86,6 +86,7 @@ func postRouterCommand(w http.ResponseWriter, r *http.Request) {
 		cmdRequest CommandRequest
 		bCmd       []byte
 		reply      chan *comet.Message
+		seq        uint32
 	)
 	response.Status = STATUS_OK
 	if r.Method != "POST" {
@@ -172,13 +173,16 @@ func postRouterCommand(w http.ResponseWriter, r *http.Request) {
 
 	bCmd, _ = json.Marshal(cmdRequest)
 	reply = make(chan *comet.Message)
-	client.SendMessage(comet.MSG_REQUEST, bCmd, reply)
+	seq = client.SendMessage(comet.MSG_REQUEST, bCmd, reply)
 	select {
 	case msg := <-reply:
+		close(reply)
 		w.Write(msg.Data)
 	case <-time.After(10 * time.Second):
+		client.MsgTimeout(seq)
+		close(reply)
 		response.Status = STATUS_OTHER_ERR
-		response.Error = fmt.Sprintf("recv response timeout [%s]", client.DevId)
+		response.Error = fmt.Sprintf("recv response [%d] timeout on device [%s]", seq, client.DevId)
 		goto resp
 	}
 	return

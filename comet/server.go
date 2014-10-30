@@ -1,11 +1,11 @@
 package comet
 
 import (
-	//"log"
 	log "github.com/cihub/seelog"
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 	//"strings"
 	"github.com/chenyf/gibbon/utils/safemap"
@@ -40,24 +40,19 @@ func NewServer() *Server {
 type Client struct {
 	DevId           string
 	ctrl            chan bool
-	MsgOut          chan *Pack
+	MsgOut          chan *Message
 	WaitingChannels map[uint32]chan *Message
 	NextSeqId       uint32
 	LastAlive       time.Time
 	RegistTime      time.Time
 }
 
-type Pack struct {
-	msg    *Message
-	client *Client
-	reply  chan *Message
-}
-
-func (client *Client) SendMessage(msgType uint8, body []byte, reply chan *Message) {
+func (this *Client) SendMessage(msgType uint8, body []byte, reply chan *Message) (seq uint32) {
+	seq = this.NextSeq()
 	header := Header{
 		Type: msgType,
 		Ver:  0,
-		Seq:  0,
+		Seq:  seq,
 		Len:  uint32(len(body)),
 	}
 	msg := &Message{
@@ -65,12 +60,20 @@ func (client *Client) SendMessage(msgType uint8, body []byte, reply chan *Messag
 		Data:   body,
 	}
 
-	pack := &Pack{
-		msg:    msg,
-		client: client,
-		reply:  reply,
+	// add reply channel
+	if reply != nil {
+		this.WaitingChannels[seq] = reply
 	}
-	client.MsgOut <- pack
+	this.MsgOut <- msg
+	return seq
+}
+
+func (this *Client) MsgTimeout(seq uint32) {
+	delete(this.WaitingChannels, seq)
+}
+
+func (this *Client) NextSeq() uint32 {
+	return atomic.AddUint32(&this.NextSeqId, 1)
 }
 
 var (
@@ -81,9 +84,9 @@ func InitClient(conn *net.TCPConn, devid string) *Client {
 	client := &Client{
 		DevId:           devid,
 		ctrl:            make(chan bool),
-		MsgOut:          make(chan *Pack, 100),
+		MsgOut:          make(chan *Message, 100),
 		WaitingChannels: make(map[uint32]chan *Message),
-		NextSeqId:       1,
+		NextSeqId:       0,
 		LastAlive:       time.Now(),
 		RegistTime:      time.Now(),
 	}
@@ -93,18 +96,11 @@ func InitClient(conn *net.TCPConn, devid string) *Client {
 		log.Tracef("start send routine for [%s] [%s]", devid, conn.RemoteAddr().String())
 		for {
 			select {
-			case pack := <-client.MsgOut:
-				seqid := pack.client.NextSeqId
-				pack.msg.Header.Seq = seqid
-				b, _ := pack.msg.Header.Serialize()
+			case msg := <-client.MsgOut:
+				b, _ := msg.Header.Serialize()
 				conn.Write(b)
-				conn.Write(pack.msg.Data)
-				log.Infof("send msg to [%s]: (%s)", devid, string(pack.msg.Data))
-				pack.client.NextSeqId += 1
-				// add reply channel
-				if pack.reply != nil {
-					pack.client.WaitingChannels[seqid] = pack.reply
-				}
+				conn.Write(msg.Data)
+				log.Infof("send msg to [%s]. seq: %d. body: (%s)", devid, msg.Header.Seq, string(msg.Data))
 			case <-client.ctrl:
 				log.Tracef("leave send routine for [%s] [%s]", devid, conn.RemoteAddr().String())
 				return
@@ -120,12 +116,14 @@ func CloseClient(client *Client) {
 }
 
 func handleReply(client *Client, header *Header, body []byte) int {
-	log.Debugf("Received reply from [%s]: %s", client.DevId, body)
+	log.Debugf("Received reply from [%s]. seq: %d. body: (%s)", client.DevId, header.Seq, body)
 	ch, ok := client.WaitingChannels[header.Seq]
 	if ok {
 		//remove waiting channel from map
 		delete(client.WaitingChannels, header.Seq)
 		ch <- &Message{Header: *header, Data: body}
+	} else {
+		log.Warnf("no waiting channel for seq: %d, device: %s", header.Seq, client.DevId)
 	}
 	return 0
 }
@@ -311,7 +309,7 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 			}
 
 			if header.Len > MAX_BODY_LEN {
-				log.Warnf("Msg body too big: %d", header.Len)
+				log.Warnf("Msg body too big from device [%s]: %d", header.Len, client.DevId)
 				break
 			}
 
