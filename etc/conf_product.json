@@ -5,6 +5,7 @@
 	"heartbeat_timeout"	: 240,
 
 	"web"				: "0.0.0.0:9090",
+	"command_timeout"	: 20,
 	"devcenter"			: "10.154.156.90",
 	"zookeeper" : {
 		"enable"		: false,

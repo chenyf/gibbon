@@ -85,7 +85,6 @@ func main() {
 	}()
 
 	waitGroup.Add(1)
-	go api.StartHttp(conf.Config.Web)
+	go api.StartHttp(conf.Config.Web, conf.Config.CommandTimeout)
 	waitGroup.Wait()
 }
-

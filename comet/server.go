@@ -162,7 +162,7 @@ func (this *Server) Init(addr string) (*net.TCPListener, error) {
 		return nil, err
 	}
 	this.funcMap[MSG_HEARTBEAT] = handleHeartbeat
-	this.funcMap[MSG_REQUEST_REPLY] = handleReply
+	this.funcMap[MSG_ROUTER_COMMAND_REPLY] = handleReply
 	return l, nil
 }
 

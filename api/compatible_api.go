@@ -173,12 +173,12 @@ func postRouterCommand(w http.ResponseWriter, r *http.Request) {
 
 	bCmd, _ = json.Marshal(cmdRequest)
 	reply = make(chan *comet.Message)
-	seq = client.SendMessage(comet.MSG_REQUEST, bCmd, reply)
+	seq = client.SendMessage(comet.MSG_ROUTER_COMMAND, bCmd, reply)
 	select {
 	case msg := <-reply:
 		close(reply)
 		w.Write(msg.Data)
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Duration(commandTimeout) * time.Second):
 		client.MsgTimeout(seq)
 		close(reply)
 		response.Status = STATUS_OTHER_ERR

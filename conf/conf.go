@@ -11,8 +11,9 @@ type ConfigStruct struct {
 	ReadTimeout      int    `json:"read_timeout"`
 	HeartbeatTimeout int    `json:"heartbeat_timeout"`
 
-	Web       string `json:"web"`
-	DevCenter string `json:"devcenter"`
+	Web            string `json:"web"`
+	CommandTimeout int    `json:"command_timeout"`
+	DevCenter      string `json:"devcenter"`
 
 	ZooKeeper struct {
 		Enable    bool   `json:"enable"`

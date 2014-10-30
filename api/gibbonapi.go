@@ -26,6 +26,10 @@ const (
 	ERR_CMD_TIMEOUT = 20000
 )
 
+var (
+	commandTimeout int
+)
+
 func getStatus(w rest.ResponseWriter, r *rest.Request) {
 	resp := ApiResponse{
 		ErrNo: ERR_NOERROR,
@@ -110,7 +114,7 @@ func controlDevice(w rest.ResponseWriter, r *rest.Request) {
 
 	bCmd, _ := json.Marshal(cmdRequest)
 	reply := make(chan *comet.Message)
-	client.SendMessage(comet.MSG_REQUEST, bCmd, reply)
+	client.SendMessage(comet.MSG_ROUTER_COMMAND, bCmd, reply)
 	select {
 	case msg := <-reply:
 		resp.ErrNo = ERR_NOERROR
@@ -122,8 +126,9 @@ func controlDevice(w rest.ResponseWriter, r *rest.Request) {
 	w.WriteJson(resp)
 }
 
-func StartHttp(addr string) {
-	log.Infof("Starting HTTP server on %s", addr)
+func StartHttp(addr string, cmdTimeout int) {
+	log.Infof("Starting HTTP server on %s, command timeout: %ds", addr, cmdTimeout)
+	commandTimeout = cmdTimeout
 
 	handler := rest.ResourceHandler{}
 	err := handler.SetRoutes(
