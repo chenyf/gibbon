@@ -62,7 +62,7 @@ func (this *Agent) Run() {
 		}
 		if c.conn == nil {
 			if ok := c.Connect(addSlice[0]); !ok {
-				time.Sleep(5 * time.Second)
+				time.Sleep(10 * time.Second)
 				continue
 			}
 			log.Infof("connect ok")
@@ -113,16 +113,26 @@ func handleRouterCommand(c *Conn, header *comet.Header, body []byte) int {
 
 	if err := json.Unmarshal(body, &msg); err != nil {
 		reply.Status = 2000
+		reply.Descr = "Request message is not JSON"
+		sendReply(c, comet.MSG_ROUTER_COMMAND_REPLY, header.Seq, &reply)
+		return 0
+	}
+
+	var cmd comet.RouterCommand
+	if err := json.Unmarshal([]byte(msg.Cmd), &cmd); err != nil {
+		reply.Status = 2000
 		reply.Descr = "Request body is not JSON"
 		sendReply(c, comet.MSG_ROUTER_COMMAND_REPLY, header.Seq, &reply)
 		return 0
 	}
-	if msg.Cmd.Forward == "" {
+
+	if cmd.Forward == "" {
 		reply.Status = 2001
 		reply.Descr = "'forward' is empty"
 		sendReply(c, comet.MSG_ROUTER_COMMAND_REPLY, header.Seq, &reply)
 		return 0
 	}
+
 	client := &http.Client{
 		Transport: &http.Transport{
 			Dial: func(netw, addr string) (net.Conn, error) {
@@ -130,30 +140,38 @@ func handleRouterCommand(c *Conn, header *comet.Header, body []byte) int {
 				if err != nil {
 					return nil, err
 				}
-				conn.SetDeadline(time.Now().Add(time.Second * 2))
+				conn.SetDeadline(time.Now().Add(time.Second * 5))
 				return conn, nil
 			},
-			ResponseHeaderTimeout: time.Second * 2,
+			ResponseHeaderTimeout: time.Second * 5,
 		},
 	}
 
+	log.Debugf("Sending request to local service: %s", cmd.Forward)
+
 	response, err := client.Post("http://127.0.0.1:9999/",
 		"application/json;charset=utf-8",
-		bytes.NewBuffer([]byte(msg.Cmd.Forward)))
+		bytes.NewBuffer([]byte(cmd.Forward)))
 	if err != nil {
 		reply.Status = 2002
-		reply.Descr = "Talk with local service failed"
+		errMsg := fmt.Sprintf("Talk with local service failed: %s", err.Error())
+		reply.Descr = errMsg
+		log.Errorf(errMsg)
 		sendReply(c, comet.MSG_ROUTER_COMMAND_REPLY, header.Seq, &reply)
 		return 0
 	}
+
 	result, err := ioutil.ReadAll(response.Body)
 	response.Body.Close()
 	if err != nil {
 		reply.Status = 2003
-		reply.Descr = "Local service response failed"
+		errMsg := fmt.Sprintf("Local service response failed: %s", err.Error())
+		reply.Descr = errMsg
+		log.Errorf(errMsg)
 		sendReply(c, comet.MSG_ROUTER_COMMAND_REPLY, header.Seq, &reply)
 		return 0
 	}
+
 	reply.Status = 0
 	reply.Descr = "OK"
 	reply.Result = string(result)
@@ -231,7 +249,7 @@ func (this *Conn) Start() {
 				b, _ := pack.msg.Header.Serialize()
 				this.conn.Write(b)
 				this.conn.Write(pack.msg.Data)
-				log.Infof("send msg: (%d) (%s)", pack.msg.Header.Type, pack.msg.Data)
+				log.Infof("send msg: Type(%d), Seq(%d), Body(%s)", pack.msg.Header.Type, pack.msg.Header.Seq, pack.msg.Data)
 				//pack.client.nextSeq += 1
 				time.Sleep(1 * time.Second)
 			case <-timer.C:

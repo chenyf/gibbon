@@ -57,11 +57,18 @@ type RegisterMessage struct {
 type RegisterReplyMessage struct {
 }
 
+type CommandRequest struct {
+	Uid string `json:"uid"`
+	Cmd string `json:"cmd"`
+}
+
 type RouterCommandMessage struct {
 	Uid string `json:"uid"`
-	Cmd struct {
-		Forward string `json:"forward"`
-	} `json:"cmd"`
+	Cmd string `json:"cmd"`
+}
+
+type RouterCommand struct {
+	Forward string `json:"forward"`
 }
 
 type RouterCommandReplyMessage struct {

@@ -1,7 +1,7 @@
 all: clean init gibbon agent tarball
 
 agent:
-	cd gibbonagent; GOOS=linux GOARCH=arm go build
+	cd gibbonagent; GOOS=linux GOARCH=arm go build; go build -o gibbonagent.amd64
 
 init:
 	mkdir -p output

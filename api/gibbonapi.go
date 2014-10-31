@@ -106,7 +106,7 @@ func controlDevice(w rest.ResponseWriter, r *rest.Request) {
 		return
 	}
 
-	cmdRequest := CommandRequest{
+	cmdRequest := comet.CommandRequest{
 		Cmd: param.Cmd,
 	}
 
