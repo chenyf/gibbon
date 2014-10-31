@@ -33,6 +33,10 @@ const (
 `
 )
 
+var (
+	heartbeatInterval int = 110
+)
+
 type MsgHandler func(*Conn, *comet.Header, []byte) int
 
 type Agent struct {
@@ -104,6 +108,12 @@ func sendReply(c *Conn, msgType uint8, seq uint32, v interface{}) {
 }
 
 func handleRegisterReply(c *Conn, header *comet.Header, body []byte) int {
+	var reply comet.RegisterReplyMessage
+	err := json.Unmarshal(body, &reply)
+	if err != nil {
+		//TODO
+	}
+
 	return 0
 }
 
@@ -112,7 +122,7 @@ func handleRouterCommand(c *Conn, header *comet.Header, body []byte) int {
 	var reply comet.RouterCommandReplyMessage
 
 	if err := json.Unmarshal(body, &msg); err != nil {
-		reply.Status = 2000
+		reply.Status = -2000
 		reply.Descr = "Request message is not JSON"
 		sendReply(c, comet.MSG_ROUTER_COMMAND_REPLY, header.Seq, &reply)
 		return 0
@@ -120,14 +130,14 @@ func handleRouterCommand(c *Conn, header *comet.Header, body []byte) int {
 
 	var cmd comet.RouterCommand
 	if err := json.Unmarshal([]byte(msg.Cmd), &cmd); err != nil {
-		reply.Status = 2000
+		reply.Status = -2000
 		reply.Descr = "Request body is not JSON"
 		sendReply(c, comet.MSG_ROUTER_COMMAND_REPLY, header.Seq, &reply)
 		return 0
 	}
 
 	if cmd.Forward == "" {
-		reply.Status = 2001
+		reply.Status = -2001
 		reply.Descr = "'forward' is empty"
 		sendReply(c, comet.MSG_ROUTER_COMMAND_REPLY, header.Seq, &reply)
 		return 0
@@ -153,7 +163,7 @@ func handleRouterCommand(c *Conn, header *comet.Header, body []byte) int {
 		"application/json;charset=utf-8",
 		bytes.NewBuffer([]byte(cmd.Forward)))
 	if err != nil {
-		reply.Status = 2002
+		reply.Status = -2002
 		errMsg := fmt.Sprintf("Talk with local service failed: %s", err.Error())
 		reply.Descr = errMsg
 		log.Errorf(errMsg)
@@ -164,7 +174,7 @@ func handleRouterCommand(c *Conn, header *comet.Header, body []byte) int {
 	result, err := ioutil.ReadAll(response.Body)
 	response.Body.Close()
 	if err != nil {
-		reply.Status = 2003
+		reply.Status = -2003
 		errMsg := fmt.Sprintf("Local service response failed: %s", err.Error())
 		reply.Descr = errMsg
 		log.Errorf(errMsg)
@@ -235,7 +245,7 @@ func (this *Conn) Start() {
 	b := []byte(macAddr)
 	this.SendMessage(comet.MSG_REGISTER, 0, b, nil)
 	go func() {
-		timer := time.NewTicker(110 * time.Second)
+		timer := time.NewTicker(time.Duration(heartbeatInterval) * time.Second)
 		h := comet.Header{}
 		h.Type = comet.MSG_HEARTBEAT
 		heartbeat, _ := h.Serialize()
@@ -354,6 +364,8 @@ func main() {
 		}
 	}
 	log.ReplaceLogger(logger)
+
+	log.Infof("gibbon agent started")
 
 	//wg := &sync.WaitGroup{}
 	agent := NewAgent()

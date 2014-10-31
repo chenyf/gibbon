@@ -6,10 +6,11 @@ import (
 )
 
 type ConfigStruct struct {
-	Comet            string `json:"comet"`
-	AcceptTimeout    int    `json:"accept_timeout"`
-	ReadTimeout      int    `json:"read_timeout"`
-	HeartbeatTimeout int    `json:"heartbeat_timeout"`
+	Comet             string `json:"comet"`
+	AcceptTimeout     int    `json:"accept_timeout"`
+	ReadTimeout       int    `json:"read_timeout"`
+	HeartbeatInterval int    `json:"heartbeat_interval"`
+	HeartbeatTimeout  int    `json:"heartbeat_timeout"`
 
 	Web            string `json:"web"`
 	CommandTimeout int    `json:"command_timeout"`

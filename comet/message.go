@@ -55,6 +55,7 @@ type RegisterMessage struct {
 }
 
 type RegisterReplyMessage struct {
+	HeartbeatInterval int `json:"bt_interval"`
 }
 
 type CommandRequest struct {

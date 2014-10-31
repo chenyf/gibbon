@@ -14,14 +14,15 @@ import (
 type MsgHandler func(*Client, *Header, []byte) int
 
 type Server struct {
-	exitCh           chan bool
-	waitGroup        *sync.WaitGroup
-	funcMap          map[uint8]MsgHandler
-	acceptTimeout    time.Duration
-	readTimeout      time.Duration
-	writeTimeout     time.Duration
-	heartbeatTimeout time.Duration
-	maxMsgLen        uint32
+	exitCh            chan bool
+	waitGroup         *sync.WaitGroup
+	funcMap           map[uint8]MsgHandler
+	acceptTimeout     time.Duration
+	readTimeout       time.Duration
+	writeTimeout      time.Duration
+	heartbeatInterval time.Duration
+	heartbeatTimeout  time.Duration
+	maxMsgLen         uint32
 }
 
 func NewServer() *Server {
@@ -142,6 +143,10 @@ func (this *Server) SetReadTimeout(timeout time.Duration) {
 	this.readTimeout = timeout
 }
 
+func (this *Server) SetHeartbeatInterval(timeout time.Duration) {
+	this.heartbeatInterval = timeout
+}
+
 func (this *Server) SetHeartbeatTimeout(timeout time.Duration) {
 	this.heartbeatTimeout = timeout
 }
@@ -174,10 +179,11 @@ func (this *Server) Run(listener *net.TCPListener) {
 	}()
 
 	//go this.dealSpamConn()
-	log.Infof("Starting comet server on: %s\n", listener.Addr().String())
-	log.Infof("Comet server settings: readtimeout [%dms], accepttimeout [%dms], heartbeattimeout [%dms]\n",
+	log.Infof("Starting comet server on: %s", listener.Addr().String())
+	log.Infof("Comet server settings: readtimeout [%dms], accepttimeout [%dms], heartbeatinterval [%dms] heartbeattimeout [%dms]",
 		this.readTimeout/time.Millisecond,
 		this.acceptTimeout/time.Millisecond,
+		this.heartbeatInterval/time.Millisecond,
 		this.heartbeatTimeout/time.Millisecond)
 
 	for {
@@ -194,7 +200,7 @@ func (this *Server) Run(listener *net.TCPListener) {
 			if e, ok := err.(*net.OpError); ok && e.Timeout() {
 				continue
 			}
-			log.Errorf("accept failed: %v\n", err)
+			log.Errorf("accept failed: %v", err)
 			continue
 		}
 		/*
@@ -260,7 +266,7 @@ func waitRegister(conn *net.TCPConn) *Client {
 
 // handle a TCP connection
 func (this *Server) handleConnection(conn *net.TCPConn) {
-	log.Infof("New conn accepted from %s\n", conn.RemoteAddr().String())
+	log.Infof("New conn accepted from %s", conn.RemoteAddr().String())
 	// handle register first
 	client := waitRegister(conn)
 	if client == nil {
@@ -325,11 +331,11 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 			if err != nil {
 				if e, ok := err.(*net.OpError); ok && e.Timeout() {
 					if now.After(startTime.Add(this.readTimeout)) {
-						log.Infof("%p: read packet data timeout", conn)
+						log.Infof("read packet data timeout [%s]", client.DevId)
 						break
 					}
 				} else {
-					log.Infof("%p: read from client failed: (%v)", conn, err)
+					log.Infof("read from client [%s] failed: (%s)", client.DevId, err.Error())
 					break
 				}
 			}
@@ -340,7 +346,7 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 				continue
 			}
 			readHeader = true
-			log.Debugf("%s: body (%s)", conn.RemoteAddr().String(), data)
+			log.Debugf("%s: body (%s)", client.DevId, data)
 		}
 
 		handler, ok := this.funcMap[header.Type]
@@ -352,8 +358,8 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 		}
 	}
 	// don't use defer to improve performance
-	log.Infof("closing device [%s] [%s]\n", client.DevId, conn.RemoteAddr().String())
+	log.Infof("closing device [%s] [%s]", client.DevId, conn.RemoteAddr().String())
 	CloseClient(client)
-	log.Infof("close connection [%s]\n", conn.RemoteAddr().String())
+	log.Infof("close connection [%s]", conn.RemoteAddr().String())
 	conn.Close()
 }

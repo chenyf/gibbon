@@ -50,6 +50,7 @@ func main() {
 
 	cometServer.SetAcceptTimeout(time.Duration(conf.Config.AcceptTimeout) * time.Second)
 	cometServer.SetReadTimeout(time.Duration(conf.Config.ReadTimeout) * time.Second)
+	cometServer.SetHeartbeatInterval(time.Duration(conf.Config.HeartbeatInterval) * time.Second)
 	cometServer.SetHeartbeatTimeout(time.Duration(conf.Config.HeartbeatTimeout) * time.Second)
 
 	c := make(chan os.Signal, 1)
