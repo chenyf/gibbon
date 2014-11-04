@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net/http"
 
+	"github.com/chenyf/gibbon/cloud"
 	"github.com/chenyf/gibbon/conf"
 )
 
@@ -22,16 +23,41 @@ type Device struct {
 }
 
 type devicesResult struct {
-	Errno  int    `json:"errno"`
-	Errmsg string `json:"errmsg"`
+	ErrNo  int    `json:"errno"`
+	ErrMsg string `json:"errmsg"`
 	Data   struct {
 		UserOpenId int      `json:"userOpenId"`
 		DeviceList []Device `json:"device"`
 	} `json:"data"`
 }
 
+func GetDeviceList(sso_tk string, devType int) ([]Device, error) {
+	url := fmt.Sprintf("http://%s/api/v1/device/bind/?sso_tk=%s&type=%d", conf.Config.DevCenter, sso_tk, devType)
+	res, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Debugf("Got response from device center: %s", body)
+
+	var result devicesResult
+	err = json.Unmarshal(body, &result)
+	if err != nil {
+		return nil, err
+	}
+
+	if result.ErrNo != cloud.ERR_NOERROR {
+		return nil, errors.New(result.ErrMsg)
+	}
+
+	return result.Data.DeviceList, nil
+}
+
 func GetDevices(uid string, devType int) ([]Device, error) {
-	log.Tracef("GetDevices")
 	url := fmt.Sprintf("http://%s/api/v1/device/bind/?user_id=%s&type=%d", conf.Config.DevCenter, uid, devType)
 	res, err := http.Get(url)
 	if err != nil {
@@ -50,8 +76,8 @@ func GetDevices(uid string, devType int) ([]Device, error) {
 		return nil, err
 	}
 
-	if result.Errno != 10000 {
-		return nil, errors.New(result.Errmsg)
+	if result.ErrNo != cloud.ERR_NOERROR {
+		return nil, errors.New(result.ErrMsg)
 	}
 
 	return result.Data.DeviceList, nil

@@ -51,8 +51,11 @@ func sign(path string, query map[string]string) []byte {
 	return mac.Sum(nil)
 }
 
-func checkAuthz(uid string, devid string) bool {
-	//log.Tracef("checkAuthz")
+func checkAuthzUid(uid string, devid string) bool {
+	// TODO: remove this is for test
+	if uid != "000000000" {
+		return true
+	}
 
 	devices, err := devcenter.GetDevices(uid, devcenter.DEV_ROUTER)
 	if err != nil {
@@ -104,19 +107,14 @@ func postRouterCommand(w http.ResponseWriter, r *http.Request) {
 		goto resp
 	}
 
-	// TODO: remove this is for test
-	if uid != "000000000" {
-		if !checkAuthz(uid, rid) {
-			log.Warnf("auth failed. uid: %s, rid: %s", uid, rid)
-			response.Status = STATUS_OTHER_ERR
-			response.Error = "authorization failed"
-			goto resp
-		}
+	if !checkAuthzUid(uid, rid) {
+		log.Warnf("auth failed. uid: %s, rid: %s", uid, rid)
+		response.Status = STATUS_OTHER_ERR
+		response.Error = "authorization failed"
+		goto resp
 	}
 
 	/*
-		uid := r.FormValue("uid")
-		if uid == "" {	fmt.Fprintf(w, "missing 'uid'\n"); return; }
 		tid := r.FormValue("tid")
 		if tid == "" {	fmt.Fprintf(w, "missing 'tid'\n"); return; }
 		sign := r.FormValue("sign")
