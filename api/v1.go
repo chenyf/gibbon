@@ -177,6 +177,12 @@ func StartHttp(addr string, cmdTimeout int) {
 		os.Exit(1)
 	}
 
+	err = initPermutation()
+	if err != nil {
+		log.Criticalf("init permutation: ", err)
+		os.Exit(1)
+	}
+
 	// the adapter API for old system
 	http.HandleFunc("/router/command", postRouterCommand)
 	http.HandleFunc("/router/list", getRouterList)
