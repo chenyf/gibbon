@@ -30,7 +30,7 @@ type devInfo struct {
 //
 func checkAuthz(sso_tk string, devid string) bool {
 	// TODO: remove this is for test
-	if sso_tk != "000000000" {
+	if sso_tk == "000000000" {
 		return true
 	}
 

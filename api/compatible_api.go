@@ -85,7 +85,7 @@ func sign_calc(path string, query map[string]string) string {
 
 func checkAuthzUid(uid string, devid string) bool {
 	// TODO: remove this is for test
-	if uid != "000000000" {
+	if uid == "000000000" {
 		return true
 	}
 
