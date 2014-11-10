@@ -112,6 +112,7 @@ func postRouterCommand(w http.ResponseWriter, r *http.Request) {
 		tid        string
 		sign       string
 		tm         string
+		src        string
 		pmtt       string
 		path       string = "/router/command"
 		mysign     string
@@ -175,22 +176,27 @@ func postRouterCommand(w http.ResponseWriter, r *http.Request) {
 		goto resp
 	}
 
+	src = r.FormValue("src")
+	if src == "" {
+		src = "src"
+	}
+
 	query = map[string]string{
 		"uid":  uid,
 		"rid":  rid,
 		"tid":  tid,
-		"src":  "src",
+		"src":  src,
 		"tm":   tm,
 		"pmtt": pmtt,
 	}
 	mysign = sign_calc(path, query)
 	if mysign != sign {
-		//response.Error = "sign valication failed"
-		//response.Status = STATUS_INVALID_PARAM
-		//goto resp
+		log.Warnf("sign valication failed")
 		log.Warnf("mysign: %s", mysign)
 		log.Warnf("insign: %s", sign)
-		log.Warnf("sign valication failed")
+		response.Error = "sign valication failed"
+		response.Status = STATUS_INVALID_PARAM
+		goto resp
 	}
 
 	if !checkAuthzUid(uid, rid) {
@@ -266,6 +272,8 @@ func getRouterList(w http.ResponseWriter, r *http.Request) {
 		uid      string
 		tid      string
 		sign     string
+		rid      string
+		src      string
 		tm       string
 		pmtt     string
 		path     string = "/router/list"
@@ -319,24 +327,33 @@ func getRouterList(w http.ResponseWriter, r *http.Request) {
 		goto resp
 	}
 
+	rid = r.FormValue("rid")
+	if rid == "" {
+		rid = "rid"
+	}
+
+	src = r.FormValue("src")
+	if src == "" {
+		src = "src"
+	}
+
 	query = map[string]string{
 		"uid":  uid,
-		"rid":  "rid",
+		"rid":  rid,
 		"tid":  tid,
-		"src":  "src",
+		"src":  src,
 		"tm":   tm,
 		"pmtt": pmtt,
 	}
+
 	mysign = sign_calc(path, query)
 	if mysign != sign {
-		//response.Error = "sign valication failed"
-		//response.Status = STATUS_INVALID_PARAM
-		//goto resp
+		log.Warnf("sign valication failed")
 		log.Warnf("mysign: %s", mysign)
 		log.Warnf("insign: %s", sign)
-		log.Warnf("sign valication failed")
-		//TODO:
-		//goto resp
+		response.Descr = "sign valication failed"
+		response.Status = STATUS_INVALID_PARAM
+		goto resp
 	}
 
 	devices, err = devcenter.GetDevices(uid, devcenter.DEV_ROUTER)
