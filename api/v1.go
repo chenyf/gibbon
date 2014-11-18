@@ -6,6 +6,7 @@ import (
 	log "github.com/cihub/seelog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/ant0ine/go-json-rest/rest"
@@ -21,8 +22,8 @@ var (
 
 type devInfo struct {
 	Id        string `json:"id"`
-	LastAlive string `json:"last_alive"`
-	RegTime   string `json:"reg_time"`
+	LastAlive string `json:"last_alive,omitempty"`
+	RegTime   string `json:"reg_time,omitempty"`
 }
 
 //
@@ -73,9 +74,23 @@ func getDevInfo(client *comet.Client) devInfo {
 
 func getDeviceList(w rest.ResponseWriter, r *rest.Request) {
 	devInfoList := []devInfo{}
-	devMap := comet.DevMap.Items()
-	for _, client := range devMap {
-		devInfoList = append(devInfoList, getDevInfo(client.(*comet.Client)))
+	r.ParseForm()
+	dev_ids := r.FormValue("dev_ids")
+	if dev_ids != "" {
+		ids := strings.Split(dev_ids, ",")
+		for _, id := range ids {
+			if comet.DevMap.Check(id) {
+				info := devInfo{
+					Id: id,
+				}
+				devInfoList = append(devInfoList, info)
+			}
+		}
+	} else {
+		devMap := comet.DevMap.Items()
+		for _, client := range devMap {
+			devInfoList = append(devInfoList, getDevInfo(client.(*comet.Client)))
+		}
 	}
 
 	resp := cloud.ApiResponse{}
