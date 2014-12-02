@@ -11,18 +11,10 @@ type ConfigStruct struct {
 	ReadTimeout       int    `json:"read_timeout"`
 	HeartbeatInterval int    `json:"heartbeat_interval"`
 	HeartbeatTimeout  int    `json:"heartbeat_timeout"`
-
-	Web            string `json:"web"`
-	CommandTimeout int    `json:"command_timeout"`
-	DevCenter      string `json:"devcenter"`
-
-	ZooKeeper struct {
-		Enable    bool   `json:"enable"`
-		Addr      string `json:"addr"`
-		Timeout   int    `json:"timeout"`
-		Root      string `json:"root"`
-		CometAddr string `json:"comet_addr"` // internet IP:port address of this comet server
-	} `json:"zookeeper"`
+	Rabbit            struct {
+		Enable bool   `json:"enable"`
+		Uri    string `json:"uri"`
+	} `json:"rabbit"`
 }
 
 var (

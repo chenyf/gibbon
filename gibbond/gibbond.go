@@ -11,10 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/chenyf/gibbon/api"
 	"github.com/chenyf/gibbon/comet"
 	"github.com/chenyf/gibbon/conf"
-	"github.com/chenyf/gibbon/zk"
+	"github.com/chenyf/gibbon/mq"
 )
 
 func main() {
@@ -65,27 +64,16 @@ func main() {
 		log.Infof("leave 2")
 	}()
 
-	if conf.Config.ZooKeeper.Enable {
-		if err := zk.ProduceZnode(conf.Config.ZooKeeper.Addr,
-			conf.Config.ZooKeeper.Root,
-			conf.Config.ZooKeeper.CometAddr,
-			time.Duration(conf.Config.ZooKeeper.Timeout)*time.Second); err != nil {
-			log.Criticalf("ProduceZnode failed: %s", err.Error())
-			os.Exit(1)
-		}
-		if err := zk.Watch(conf.Config.ZooKeeper.Addr,
-			conf.Config.ZooKeeper.Root,
-			time.Duration(conf.Config.ZooKeeper.Timeout)*time.Second); err != nil {
-			log.Criticalf("Watch failed: %s", err.Error())
-			os.Exit(1)
-		}
-	}
-
 	go func() {
 		cometServer.Run(listener)
 	}()
 
+	_, err = mq.NewRpcServer(conf.Config.Rabbit.Uri, "gibbon_rpc_exchange", "gibbon")
+	if err != nil {
+		log.Critical("failed to start RPC server: ", err)
+		os.Exit(1)
+	}
+
 	waitGroup.Add(1)
-	go api.StartHttp(conf.Config.Web, conf.Config.CommandTimeout)
 	waitGroup.Wait()
 }
