@@ -15,6 +15,12 @@ type ConfigStruct struct {
 		Enable bool   `json:"enable"`
 		Uri    string `json:"uri"`
 	} `json:"rabbit"`
+	Redis struct {
+		Server   string `json:"server"`
+		Pass     string `json:"pass"`
+		PoolSize int    `json:"poolsize"`
+		Retry    int    `json:"retry"`
+	} `json:"redis"`
 }
 
 var (

@@ -14,6 +14,7 @@ import (
 	"github.com/chenyf/gibbon/comet"
 	"github.com/chenyf/gibbon/conf"
 	"github.com/chenyf/gibbon/mq"
+	"github.com/chenyf/gibbon/storage"
 )
 
 func main() {
@@ -39,8 +40,13 @@ func main() {
 	log.ReplaceLogger(logger)
 
 	waitGroup := &sync.WaitGroup{}
-	cometServer := comet.NewServer()
 
+	storage.NewInstance(conf.Config.Redis.Server,
+		conf.Config.Redis.Pass,
+		conf.Config.Redis.PoolSize,
+		conf.Config.Redis.Retry)
+
+	cometServer := comet.NewServer()
 	listener, err := cometServer.Init(conf.Config.Comet)
 	if err != nil {
 		log.Criticalf("Failed to start comet server: %s", err.Error())

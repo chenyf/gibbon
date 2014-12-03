@@ -8,12 +8,14 @@ import (
 	"sync/atomic"
 	"time"
 	//"strings"
+	"github.com/chenyf/gibbon/storage"
 	"github.com/chenyf/gibbon/utils/safemap"
 )
 
 type MsgHandler func(*Client, *Header, []byte) int
 
 type Server struct {
+	Name              string // unique name of this server
 	exitCh            chan bool
 	waitGroup         *sync.WaitGroup
 	funcMap           map[uint8]MsgHandler
@@ -27,6 +29,7 @@ type Server struct {
 
 func NewServer() *Server {
 	return &Server{
+		Name:             "gibbon",
 		exitCh:           make(chan bool),
 		waitGroup:        &sync.WaitGroup{},
 		funcMap:          make(map[uint8]MsgHandler),
@@ -81,7 +84,13 @@ var (
 	DevMap *safemap.SafeMap = safemap.NewSafeMap()
 )
 
-func InitClient(conn *net.TCPConn, devid string) *Client {
+func (this *Server) InitClient(conn *net.TCPConn, devid string) *Client {
+	// save the client device Id to storage
+	if err := storage.Instance.AddDevice(this.Name, devid); err != nil {
+		log.Infof("failed to put device %s into redis:", devid, err)
+		return nil
+	}
+
 	client := &Client{
 		DevId:           devid,
 		ctrl:            make(chan bool),
@@ -111,8 +120,11 @@ func InitClient(conn *net.TCPConn, devid string) *Client {
 	return client
 }
 
-func CloseClient(client *Client) {
+func (this *Server) CloseClient(client *Client) {
 	client.ctrl <- true
+	if err := storage.Instance.RemoveDevice(this.Name, client.DevId); err != nil {
+		log.Errorf("failed to remove device %s from redis:", client.DevId, err)
+	}
 	DevMap.Delete(client.DevId)
 }
 
@@ -168,6 +180,25 @@ func (this *Server) Init(addr string) (*net.TCPListener, error) {
 	}
 	this.funcMap[MSG_HEARTBEAT] = handleHeartbeat
 	this.funcMap[MSG_ROUTER_COMMAND_REPLY] = handleReply
+
+	if err := storage.Instance.InitDevices(this.Name); err != nil {
+		log.Errorf("failed to InitDevices: %s", err.Error())
+		return nil, err
+	}
+
+	// keep the data of this node not expired on redis
+	go func() {
+		for {
+			select {
+			case <-this.exitCh:
+				log.Infof("exiting storage refreshing routine")
+				return
+			case <-time.After(10 * time.Second):
+				storage.Instance.RefreshDevices(this.Name, 30)
+			}
+		}
+	}()
+
 	return l, nil
 }
 
@@ -222,7 +253,7 @@ func (this *Server) Stop() {
 	log.Infof("comet server stopped")
 }
 
-func waitRegister(conn *net.TCPConn) *Client {
+func (this *Server) waitRegister(conn *net.TCPConn) *Client {
 	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	buf := make([]byte, 10)
 	n, err := io.ReadFull(conn, buf)
@@ -260,7 +291,7 @@ func waitRegister(conn *net.TCPConn) *Client {
 		conn.Close()
 		return nil
 	}
-	client := InitClient(conn, devid)
+	client := this.InitClient(conn, devid)
 	return client
 }
 
@@ -268,7 +299,7 @@ func waitRegister(conn *net.TCPConn) *Client {
 func (this *Server) handleConnection(conn *net.TCPConn) {
 	log.Infof("New conn accepted from %s", conn.RemoteAddr().String())
 	// handle register first
-	client := waitRegister(conn)
+	client := this.waitRegister(conn)
 	if client == nil {
 		return
 	}
@@ -359,7 +390,7 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 	}
 	// don't use defer to improve performance
 	log.Infof("closing device [%s] [%s]", client.DevId, conn.RemoteAddr().String())
-	CloseClient(client)
+	this.CloseClient(client)
 	log.Infof("close connection [%s]", conn.RemoteAddr().String())
 	conn.Close()
 }
