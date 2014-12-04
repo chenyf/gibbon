@@ -15,6 +15,7 @@ import (
 	"github.com/chenyf/gibbon/conf"
 	"github.com/chenyf/gibbon/mq"
 	"github.com/chenyf/gibbon/storage"
+	"github.com/chenyf/push/utils"
 )
 
 func main() {
@@ -28,6 +29,12 @@ func main() {
 	err := conf.LoadConfig(*flConfig)
 	if err != nil {
 		fmt.Printf("LoadConfig (%s) failed: (%s)\n", *flConfig, err)
+		os.Exit(1)
+	}
+
+	err = log.RegisterCustomFormatter("Ms", utils.CreateMsFormatter)
+	if err != nil {
+		fmt.Printf("Failed to create custom formatter: (%s)\n", err)
 		os.Exit(1)
 	}
 

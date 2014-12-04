@@ -17,7 +17,7 @@ tarball: init gibbon
 	cp gibbond/control.sh output
 	mkdir -p output/etc
 	cp gibbond/etc/conf_product.json output/etc/conf.json
-	cp gibbond/etc/log_product.xml output/etc/log.xml
+	cp gibbond/etc/log.xml output/etc/log.xml
 	cp gibbond/etc/supervisord.conf output/etc/
 	cp misc/setupenv.sh output
 	tar -czf gibbon.tgz output

@@ -126,11 +126,9 @@ func (this *RpcServer) SendRpcResponse(callbackQueue, correlationId string, resp
 func (this *RpcServer) handleRpcRequest(deliveries <-chan amqp.Delivery) {
 	for d := range deliveries {
 		log.Debugf(
-			"got %dB RPC request [%s]: [%v] %q",
+			"got %dB RPC request [%s]",
 			len(d.Body),
 			d.CorrelationId,
-			d.DeliveryTag,
-			d.Body,
 		)
 		d.Ack(false)
 

@@ -9,7 +9,7 @@ import (
 	"time"
 	//"strings"
 	"github.com/chenyf/gibbon/storage"
-	"github.com/chenyf/gibbon/utils/safemap"
+	"github.com/chenyf/push/utils/safemap"
 )
 
 type MsgHandler func(*Client, *Header, []byte) int
@@ -129,7 +129,7 @@ func (this *Server) CloseClient(client *Client) {
 }
 
 func handleReply(client *Client, header *Header, body []byte) int {
-	log.Debugf("Received reply from [%s]. seq: %d. body: (%s)", client.DevId, header.Seq, body)
+	log.Debugf("Received reply from [%s]. seq: %d.", client.DevId, header.Seq)
 	ch, ok := client.WaitingChannels[header.Seq]
 	if ok {
 		//remove waiting channel from map
@@ -377,7 +377,7 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 				continue
 			}
 			readHeader = true
-			log.Debugf("%s: body (%s)", client.DevId, data)
+			//log.Debugf("%s: body (%s)", client.DevId, data)
 		}
 
 		handler, ok := this.funcMap[header.Type]
