@@ -1,31 +1,35 @@
 package comet
 
 import (
-	//"log"
 	log "github.com/cihub/seelog"
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 	//"strings"
-	"github.com/chenyf/gibbon/utils/safemap"
+	"github.com/chenyf/gibbon/storage"
+	"github.com/chenyf/push/utils/safemap"
 )
 
 type MsgHandler func(*Client, *Header, []byte) int
 
 type Server struct {
-	exitCh           chan bool
-	waitGroup        *sync.WaitGroup
-	funcMap          map[uint8]MsgHandler
-	acceptTimeout    time.Duration
-	readTimeout      time.Duration
-	writeTimeout     time.Duration
-	heartbeatTimeout time.Duration
-	maxMsgLen        uint32
+	Name              string // unique name of this server
+	exitCh            chan bool
+	waitGroup         *sync.WaitGroup
+	funcMap           map[uint8]MsgHandler
+	acceptTimeout     time.Duration
+	readTimeout       time.Duration
+	writeTimeout      time.Duration
+	heartbeatInterval time.Duration
+	heartbeatTimeout  time.Duration
+	maxMsgLen         uint32
 }
 
 func NewServer() *Server {
 	return &Server{
+		Name:             "gibbon",
 		exitCh:           make(chan bool),
 		waitGroup:        &sync.WaitGroup{},
 		funcMap:          make(map[uint8]MsgHandler),
@@ -38,25 +42,21 @@ func NewServer() *Server {
 }
 
 type Client struct {
-	devId           string
+	DevId           string
 	ctrl            chan bool
-	MsgOut          chan *Pack
+	MsgOut          chan *Message
 	WaitingChannels map[uint32]chan *Message
 	NextSeqId       uint32
 	LastAlive       time.Time
+	RegistTime      time.Time
 }
 
-type Pack struct {
-	msg    *Message
-	client *Client
-	reply  chan *Message
-}
-
-func (client *Client) SendMessage(msgType uint8, body []byte, reply chan *Message) {
+func (this *Client) SendMessage(msgType uint8, body []byte, reply chan *Message) (seq uint32) {
+	seq = this.NextSeq()
 	header := Header{
 		Type: msgType,
 		Ver:  0,
-		Seq:  0,
+		Seq:  seq,
 		Len:  uint32(len(body)),
 	}
 	msg := &Message{
@@ -64,47 +64,55 @@ func (client *Client) SendMessage(msgType uint8, body []byte, reply chan *Messag
 		Data:   body,
 	}
 
-	pack := &Pack{
-		msg:    msg,
-		client: client,
-		reply:  reply,
+	// add reply channel
+	if reply != nil {
+		this.WaitingChannels[seq] = reply
 	}
-	client.MsgOut <- pack
+	this.MsgOut <- msg
+	return seq
+}
+
+func (this *Client) MsgTimeout(seq uint32) {
+	delete(this.WaitingChannels, seq)
+}
+
+func (this *Client) NextSeq() uint32 {
+	return atomic.AddUint32(&this.NextSeqId, 1)
 }
 
 var (
 	DevMap *safemap.SafeMap = safemap.NewSafeMap()
 )
 
-func InitClient(conn *net.TCPConn, devid string) *Client {
+func (this *Server) InitClient(conn *net.TCPConn, devid string) *Client {
+	// save the client device Id to storage
+	if err := storage.Instance.AddDevice(this.Name, devid); err != nil {
+		log.Infof("failed to put device %s into redis:", devid, err)
+		return nil
+	}
+
 	client := &Client{
-		devId:           devid,
+		DevId:           devid,
 		ctrl:            make(chan bool),
-		MsgOut:          make(chan *Pack, 100),
+		MsgOut:          make(chan *Message, 100),
 		WaitingChannels: make(map[uint32]chan *Message),
-		NextSeqId:       1,
+		NextSeqId:       0,
 		LastAlive:       time.Now(),
+		RegistTime:      time.Now(),
 	}
 	DevMap.Set(devid, client)
 
 	go func() {
-		log.Tracef("start send routine for %s", conn.RemoteAddr().String())
+		log.Tracef("start send routine for [%s] [%s]", devid, conn.RemoteAddr().String())
 		for {
 			select {
-			case pack := <-client.MsgOut:
-				seqid := pack.client.NextSeqId
-				pack.msg.Header.Seq = seqid
-				b, _ := pack.msg.Header.Serialize()
+			case msg := <-client.MsgOut:
+				b, _ := msg.Header.Serialize()
 				conn.Write(b)
-				conn.Write(pack.msg.Data)
-				log.Infof("send msg ok, (%s)", string(pack.msg.Data))
-				pack.client.NextSeqId += 1
-				// add reply channel
-				if pack.reply != nil {
-					pack.client.WaitingChannels[seqid] = pack.reply
-				}
+				conn.Write(msg.Data)
+				log.Infof("send msg to [%s]. seq: %d. body: (%s)", devid, msg.Header.Seq, string(msg.Data))
 			case <-client.ctrl:
-				log.Tracef("leave send routine for %s", conn.RemoteAddr().String())
+				log.Tracef("leave send routine for [%s] [%s]", devid, conn.RemoteAddr().String())
 				return
 			}
 		}
@@ -112,24 +120,29 @@ func InitClient(conn *net.TCPConn, devid string) *Client {
 	return client
 }
 
-func CloseClient(client *Client) {
+func (this *Server) CloseClient(client *Client) {
 	client.ctrl <- true
-	DevMap.Delete(client.devId)
+	if err := storage.Instance.RemoveDevice(this.Name, client.DevId); err != nil {
+		log.Errorf("failed to remove device %s from redis:", client.DevId, err)
+	}
+	DevMap.Delete(client.DevId)
 }
 
 func handleReply(client *Client, header *Header, body []byte) int {
-	log.Debugf("Received reply: %s", body)
+	log.Debugf("Received reply from [%s]. seq: %d.", client.DevId, header.Seq)
 	ch, ok := client.WaitingChannels[header.Seq]
 	if ok {
 		//remove waiting channel from map
 		delete(client.WaitingChannels, header.Seq)
 		ch <- &Message{Header: *header, Data: body}
+	} else {
+		log.Warnf("no waiting channel for seq: %d, device: %s", header.Seq, client.DevId)
 	}
 	return 0
 }
 
 func handleHeartbeat(client *Client, header *Header, body []byte) int {
-	log.Debugf("Heartbeat from devid: %s", client.devId)
+	log.Debugf("Heartbeat from devid: %s", client.DevId)
 	client.LastAlive = time.Now()
 	return 0
 }
@@ -140,6 +153,10 @@ func (this *Server) SetAcceptTimeout(timeout time.Duration) {
 
 func (this *Server) SetReadTimeout(timeout time.Duration) {
 	this.readTimeout = timeout
+}
+
+func (this *Server) SetHeartbeatInterval(timeout time.Duration) {
+	this.heartbeatInterval = timeout
 }
 
 func (this *Server) SetHeartbeatTimeout(timeout time.Duration) {
@@ -162,7 +179,26 @@ func (this *Server) Init(addr string) (*net.TCPListener, error) {
 		return nil, err
 	}
 	this.funcMap[MSG_HEARTBEAT] = handleHeartbeat
-	this.funcMap[MSG_REQUEST_REPLY] = handleReply
+	this.funcMap[MSG_ROUTER_COMMAND_REPLY] = handleReply
+
+	if err := storage.Instance.InitDevices(this.Name); err != nil {
+		log.Errorf("failed to InitDevices: %s", err.Error())
+		return nil, err
+	}
+
+	// keep the data of this node not expired on redis
+	go func() {
+		for {
+			select {
+			case <-this.exitCh:
+				log.Infof("exiting storage refreshing routine")
+				return
+			case <-time.After(10 * time.Second):
+				storage.Instance.RefreshDevices(this.Name, 30)
+			}
+		}
+	}()
+
 	return l, nil
 }
 
@@ -174,9 +210,13 @@ func (this *Server) Run(listener *net.TCPListener) {
 	}()
 
 	//go this.dealSpamConn()
-	log.Infof("Starting comet server on: %s\n", listener.Addr().String())
-	log.Infof("Comet server settings: readtimeout [%d], accepttimeout [%d], heartbeattimeout [%d]\n",
-		this.readTimeout, this.acceptTimeout, this.heartbeatTimeout)
+	log.Infof("Starting comet server on: %s", listener.Addr().String())
+	log.Infof("Comet server settings: readtimeout [%dms], accepttimeout [%dms], heartbeatinterval [%dms] heartbeattimeout [%dms]",
+		this.readTimeout/time.Millisecond,
+		this.acceptTimeout/time.Millisecond,
+		this.heartbeatInterval/time.Millisecond,
+		this.heartbeatTimeout/time.Millisecond)
+
 	for {
 		select {
 		case <-this.exitCh:
@@ -191,7 +231,7 @@ func (this *Server) Run(listener *net.TCPListener) {
 			if e, ok := err.(*net.OpError); ok && e.Timeout() {
 				continue
 			}
-			log.Errorf("accept failed: %v\n", err)
+			log.Errorf("accept failed: %v", err)
 			continue
 		}
 		/*
@@ -213,7 +253,7 @@ func (this *Server) Stop() {
 	log.Infof("comet server stopped")
 }
 
-func waitRegister(conn *net.TCPConn) *Client {
+func (this *Server) waitRegister(conn *net.TCPConn) *Client {
 	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	buf := make([]byte, 10)
 	n, err := io.ReadFull(conn, buf)
@@ -251,19 +291,26 @@ func waitRegister(conn *net.TCPConn) *Client {
 		conn.Close()
 		return nil
 	}
-	client := InitClient(conn, devid)
+	client := this.InitClient(conn, devid)
 	return client
 }
 
 // handle a TCP connection
 func (this *Server) handleConnection(conn *net.TCPConn) {
-	log.Debugf("accept connection (%v)", conn)
-	log.Infof("New conn accepted from %s\n", conn.RemoteAddr().String())
+	log.Infof("New conn accepted from %s", conn.RemoteAddr().String())
 	// handle register first
-	client := waitRegister(conn)
+	client := this.waitRegister(conn)
 	if client == nil {
 		return
 	}
+
+	var (
+		readHeader = true
+		bytesRead  = 0
+		data       []byte
+		header     Header
+		startTime  time.Time
+	)
 
 	for {
 		/*
@@ -275,49 +322,62 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 			}
 		*/
 
-		var (
-			data []byte = nil
-		)
-
 		now := time.Now()
 		if now.After(client.LastAlive.Add(this.heartbeatTimeout)) {
-			log.Warnf("heartbeat timeout")
+			log.Warnf("Device [%s] heartbeat timeout", client.DevId)
 			break
 		}
 
-		//conn.SetReadDeadline(time.Now().Add(this.readTimeout))
 		conn.SetReadDeadline(now.Add(10 * time.Second))
-		buf := make([]byte, HEADER_SIZE)
-		n, err := io.ReadFull(conn, buf)
-		if err != nil {
-			if e, ok := err.(*net.OpError); ok && e.Timeout() {
-				//log.Printf("read timeout, %d", n)
-				continue
-			}
-			log.Errorf("readfull failed (%v)", err)
-			break
-		}
-
-		var header Header
-		if err := header.Deserialize(buf[0:n]); err != nil {
-			log.Errorf("Deserialize header failed: %s", err.Error())
-			break
-		}
-
-		if header.Len > MAX_BODY_LEN {
-			log.Warnf("Msg body too big: %d", header.Len)
-			break
-		}
-
-		if header.Len > 0 {
-			data = make([]byte, header.Len)
-			if _, err := io.ReadFull(conn, data); err != nil {
+		if readHeader {
+			buf := make([]byte, HEADER_SIZE)
+			n, err := io.ReadFull(conn, buf)
+			if err != nil {
 				if e, ok := err.(*net.OpError); ok && e.Timeout() {
+					//log.Printf("read timeout, %d", n)
 					continue
 				}
-				log.Errorf("read from client failed: (%v)", err)
+				log.Errorf("readfull failed (%v)", err)
 				break
 			}
+			if err := header.Deserialize(buf[0:n]); err != nil {
+				log.Errorf("Deserialize header failed: %s", err.Error())
+				break
+			}
+
+			if header.Len > MAX_BODY_LEN {
+				log.Warnf("Msg body too big from device [%s]: %d", header.Len, client.DevId)
+				break
+			}
+
+			if header.Len > 0 {
+				data = make([]byte, header.Len)
+				readHeader = false
+				bytesRead = 0
+				startTime = time.Now()
+				continue
+			}
+		} else {
+			n, err := conn.Read(data[bytesRead:])
+			if err != nil {
+				if e, ok := err.(*net.OpError); ok && e.Timeout() {
+					if now.After(startTime.Add(this.readTimeout)) {
+						log.Infof("read packet data timeout [%s]", client.DevId)
+						break
+					}
+				} else {
+					log.Infof("read from client [%s] failed: (%s)", client.DevId, err.Error())
+					break
+				}
+			}
+			if n > 0 {
+				bytesRead += n
+			}
+			if uint32(bytesRead) < header.Len {
+				continue
+			}
+			readHeader = true
+			//log.Debugf("%s: body (%s)", client.DevId, data)
 		}
 
 		handler, ok := this.funcMap[header.Type]
@@ -329,7 +389,8 @@ func (this *Server) handleConnection(conn *net.TCPConn) {
 		}
 	}
 	// don't use defer to improve performance
-	log.Infof("close connection %s\n", conn.RemoteAddr().String())
-	CloseClient(client)
+	log.Infof("closing device [%s] [%s]", client.DevId, conn.RemoteAddr().String())
+	this.CloseClient(client)
+	log.Infof("close connection [%s]", conn.RemoteAddr().String())
 	conn.Close()
 }

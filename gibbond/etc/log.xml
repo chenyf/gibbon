@@ -7,7 +7,7 @@
 		-->
 	</outputs>
 	<formats>
-		<format id="common" format="%Date/%Time [%LEV] %Msg%n" />
+		<format id="common" format="%Date/%Time.%Ms [%LEV] %Msg%n" />
 	</formats>
 </seelog>
 

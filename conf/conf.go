@@ -6,13 +6,21 @@ import (
 )
 
 type ConfigStruct struct {
-	Comet            string `json:"comet"`
-	AcceptTimeout    int    `json:"accept_timeout"`
-	ReadTimeout      int    `json:"read_timeout"`
-	HeartbeatTimeout int    `json:"heartbeat_timeout"`
-
-	Web       string `json:"web"`
-	DevCenter string `json:"devcenter"`
+	Comet             string `json:"comet"`
+	AcceptTimeout     int    `json:"accept_timeout"`
+	ReadTimeout       int    `json:"read_timeout"`
+	HeartbeatInterval int    `json:"heartbeat_interval"`
+	HeartbeatTimeout  int    `json:"heartbeat_timeout"`
+	Rabbit            struct {
+		Enable bool   `json:"enable"`
+		Uri    string `json:"uri"`
+	} `json:"rabbit"`
+	Redis struct {
+		Server   string `json:"server"`
+		Pass     string `json:"pass"`
+		PoolSize int    `json:"poolsize"`
+		Retry    int    `json:"retry"`
+	} `json:"redis"`
 }
 
 var (
